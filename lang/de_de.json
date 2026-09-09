@@ -1,0 +1,15 @@
+{
+  "app.title": "Einstellungen",
+  "app.name": "Einstellungen",
+  "sidebar.search": "Suchen",
+  "sidebar.wifi": "WLAN",
+  "wifi.title": "WLAN",
+  "wifi.header.subtitle": "Richte WLAN ein, um deinen Computer drahtlos mit dem Internet zu verbinden. Schalte WLAN ein und wähle dann ein Netzwerk aus.",
+  "wifi.toggle": "WLAN",
+  "wifi.networks.header": "Bekannte Netzwerke",
+  "wifi.example.note": "Beispielinhalt: Verbinde dich mit einem Netzwerk, um zu starten.",
+  "wifi.row.home": "HeimNetz",
+  "wifi.row.home.detail": "Verbunden",
+  "wifi.row.lab": "TontooLabor",
+  "wifi.row.lab.detail": "Gesichert"
+}

@@ -1,0 +1,15 @@
+{
+  "app.title": "Settings",
+  "app.name": "Settings",
+  "sidebar.search": "Search",
+  "sidebar.wifi": "Wi-Fi",
+  "wifi.title": "Wi-Fi",
+  "wifi.header.subtitle": "Set up Wi-Fi to wirelessly connect your computer to the internet. Turn on Wi-Fi, then choose a network to join.",
+  "wifi.toggle": "Wi-Fi",
+  "wifi.networks.header": "Known Networks",
+  "wifi.example.note": "Example content: connect to a network to get started.",
+  "wifi.row.home": "HomeNet",
+  "wifi.row.home.detail": "Connected",
+  "wifi.row.lab": "TontooLab",
+  "wifi.row.lab.detail": "Secured"
+}
