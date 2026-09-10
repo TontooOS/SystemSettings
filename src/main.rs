@@ -16,7 +16,7 @@ struct SettingsDelegate;
 
 impl AppDelegate for SettingsDelegate {
   fn view(&self) -> Box<dyn Widget> {
-    Box::new(views::wifi::SettingsRoot::new())
+    Box::new(views::root::SettingsRoot::new())
   }
 }
 
