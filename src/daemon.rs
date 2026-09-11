@@ -6,6 +6,11 @@
 //! (`com.tontoo.systemsettings`). No UI code uses this module yet;
 //! frontend wiring is a later step.
 //!
+//! The Wallpaper page is daemon-wired: `wallpaper_get` (public read)
+//! loads the full wallpaper state, `wallpaper_set_current`,
+//! `wallpaper_set_fill` and `wallpaper_add` (private writes) persist the
+//! selection and uploads.
+//!
 //! The protocol is newline-delimited JSON over a unix socket:
 //! `{"id": 1, "op": ..., "params": {...}}` with replies shaped
 //! `{"id": 1, "ok": bool, "result": ...}` or `{"id": 1, "ok": false,
@@ -171,6 +176,77 @@ pub fn forget(ssid: &str) -> Result<bool, String> {
         .unwrap_or(false))
 }
 
+/// One listed wallpaper: a premade pack or a user custom file.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct WallpaperEntry {
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub path: String,
+}
+
+/// Full wallpaper state behind `wallpaper_get`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(default)]
+pub struct WallpaperState {
+    pub current: Option<WallpaperEntry>,
+    pub fill: String,
+    pub customs: Vec<WallpaperEntry>,
+    pub premade: Vec<WallpaperEntry>,
+}
+
+impl Default for WallpaperState {
+    fn default() -> Self {
+        Self {
+            current: None,
+            fill: "fill".to_string(),
+            customs: Vec::new(),
+            premade: Vec::new(),
+        }
+    }
+}
+
+/// Read the full wallpaper state (`wallpaper_get`, public).
+pub fn wallpaper_get() -> Result<WallpaperState, String> {
+    let result = call("wallpaper_get", serde_json::json!({}))?;
+    serde_json::from_value(result).map_err(|e| format!("wallpaper get invalid: {}", e))
+}
+
+/// Persist the current wallpaper selection (`wallpaper_set_current`,
+/// private). Desktop untouched.
+pub fn wallpaper_set_current(kind: &str, id: &str) -> Result<Option<WallpaperEntry>, String> {
+    let result = call(
+        "wallpaper_set_current",
+        serde_json::json!({"kind": kind, "id": id}),
+    )?;
+    serde_json::from_value(result).map_err(|e| format!("wallpaper set invalid: {}", e))
+}
+
+/// Persist the fill mode (`wallpaper_set_fill`, private). Returns the
+/// applied mode. Desktop untouched.
+pub fn wallpaper_set_fill(fill: &str) -> Result<String, String> {
+    let result = call("wallpaper_set_fill", serde_json::json!({"fill": fill}))?;
+    result
+        .get("fill")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| "wallpaper set invalid: missing fill".to_string())
+}
+
+/// Upload an image file to the user customs (`wallpaper_add`, private).
+/// The daemon decodes it and stores a PNG. Returns the new entry.
+pub fn wallpaper_add(path: &str, name: Option<&str>) -> Result<WallpaperEntry, String> {
+    let result = call(
+        "wallpaper_add",
+        serde_json::json!({"path": path, "name": name}),
+    )?;
+    serde_json::from_value(result).map_err(|e| format!("wallpaper add invalid: {}", e))
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -285,6 +361,64 @@ mod tests {
         );
         let err = connect("Nope", None, false).unwrap_err();
         assert!(err.contains("wifi connect failed"));
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn wallpaper_get_roundtrip_with_defaults() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("wallpaper-get");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result": {
+                "current": null, "fill": "tile",
+                "customs": [{"kind": "custom", "id": "mine", "name": "Mine", "path": "/tmp/mine.png"}],
+                "premade": []}}),
+        );
+        let state = wallpaper_get().unwrap();
+        assert!(state.current.is_none());
+        assert_eq!(state.fill, "tile");
+        assert_eq!(state.customs.len(), 1);
+        assert_eq!(state.customs[0].id, "mine");
+        assert!(state.premade.is_empty());
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn wallpaper_set_fill_roundtrip() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("wallpaper-fill");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result": {"fill": "center"}}),
+        );
+        assert_eq!(wallpaper_set_fill("center").unwrap(), "center");
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn wallpaper_add_roundtrip_and_error() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("wallpaper-add");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result":
+                {"kind": "custom", "id": "photo", "name": "Photo", "path": "/tmp/photo.png"}}),
+        );
+        let entry = wallpaper_add("/tmp/photo.jpg", None).unwrap();
+        assert_eq!(entry.id, "photo");
+
+        let path = unique_socket("wallpaper-add-error");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": false, "error": "wallpaper add failed: file not found"}),
+        );
+        let err = wallpaper_add("/tmp/missing.png", None).unwrap_err();
+        assert!(err.contains("file not found"));
         std::env::remove_var("SETTINGS_SOCKET");
     }
 }

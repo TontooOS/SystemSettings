@@ -362,18 +362,34 @@ then Tinti Suggestions (on) and Recent Searches (off) toggles.
 
 ## Wallpaper page
 
-Example content (`src/views/wallpaper.rs`): header with the turquoise
-`atom` icon (`(48, 176, 199)`), title and subtitle, then a Current row
-with an example wallpaper plus an Auto Change toggle.
+`src/views/wallpaper.rs`: current wallpaper card (preview thumbnail,
+name, fill mode dropdown) plus an available wallpapers card (Browse
+button, horizontal custom row, premade grid). Display only except the
+fill mode dropdown (persisted via `wallpaper_set_fill`) and Browse
+(uploads via `wallpaper_add`, daemon converts to PNG); nothing here
+applies the wallpaper to the desktop. All data comes from
+`wallpaper_get` with empty fallbacks when the daemon is unreachable.
 
 | Key | en_us | de_de |
 |---|---|---|
 | `sidebar.wallpaper` | `Wallpaper` | `Hintergrundsbild` |
 | `wallpaper.title` | `Wallpaper` | `Hintergrundsbild` |
 | `wallpaper.header.subtitle` | `Choose the desktop background.` | `Schreibtischhintergrund wählen.` |
-| `wallpaper.current` | `Current` | `Aktuell` |
-| `wallpaper.current.detail` | `Tontoo Reef` | `Tontoo-Riff` |
-| `wallpaper.auto_change` | `Auto Change` | `Automatisch wechseln` |
+| `wallpaper.current` | `Current Wallpaper` | `Aktuelles Hintergrundbild` |
+| `wallpaper.no_wallpaper` | `No wallpaper set` | `Kein Hintergrundbild festgelegt` |
+| `wallpaper.fill_mode` | `Fill Mode` | `Füllmodus` |
+| `wallpaper.fill.fill` | `Fill screen` | `Bildschirm füllen` |
+| `wallpaper.fill.fit` | `Fit to screen` | `An Bildschirm anpassen` |
+| `wallpaper.fill.stretch` | `Stretch to Fill Screen` | `Auf Bildschirm strecken` |
+| `wallpaper.fill.center` | `Center` | `Zentrieren` |
+| `wallpaper.fill.tile` | `Tile` | `Kacheln` |
+| `wallpaper.available` | `Available Wallpapers` | `Verfügbare Hintergrundbilder` |
+| `wallpaper.browse` | `Browse...` | `Durchsuchen …` |
+| `wallpaper.open` | `Open` | `Öffnen` |
+| `wallpaper.all_images` | `All images` | `Alle Bilder` |
+| `wallpaper.no_wallpapers` | `No wallpapers found.` | `Keine Hintergrundbilder gefunden.` |
+| `wallpaper.custom` | `Custom` | `Eigene` |
+| `wallpaper.premade` | `Premade` | `Vorinstalliert` |
 
 ## Notifications page
 
@@ -603,9 +619,11 @@ a Developer Mode toggle (off) plus an API Logs row.
 
 `src/daemon.rs` wires the app to the settings daemon over its unix socket
 (`SETTINGS_SOCKET` override, else `/run/tontoo-settings.sock`). It covers
-the public read ops (`wifi_list`, `wifi_status`) and the private write ops
-(`wifi_connect`, `wifi_disconnect`, `wifi_enable`, `wifi_disable`,
-`wifi_forget`) reserved for this app (`com.tontoo.systemsettings`).
+the public read ops (`wifi_list`, `wifi_status`, `wallpaper_get`) and the
+private write ops (`wifi_connect`, `wifi_disconnect`, `wifi_enable`,
+`wifi_disable`, `wifi_forget`, `wallpaper_set_current`,
+`wallpaper_set_fill`, `wallpaper_add`) reserved for this app
+(`com.tontoo.systemsettings`).
 
 ```rust
 pub fn list() -> Result<Vec<WifiNetwork>, String>
@@ -614,12 +632,17 @@ pub fn connect(ssid: &str, password: Option<&str>, hidden: bool) -> Result<WifiS
 pub fn disconnect() -> Result<(), String>
 pub fn set_enabled(enabled: bool) -> Result<(), String>
 pub fn forget(ssid: &str) -> Result<bool, String>
+pub fn wallpaper_get() -> Result<WallpaperState, String>
+pub fn wallpaper_set_current(kind: &str, id: &str) -> Result<Option<WallpaperEntry>, String>
+pub fn wallpaper_set_fill(fill: &str) -> Result<String, String>
+pub fn wallpaper_add(path: &str, name: Option<&str>) -> Result<WallpaperEntry, String>
 ```
 
 Rules:
 
-- Backend wiring only: no UI code uses this module yet, the Wi-Fi page
-  keeps showing example content until the frontend step connects it.
+- The Wallpaper page is daemon-wired (state, fill mode, uploads); the
+  Wi-Fi page keeps showing example content until the frontend step
+  connects it.
 - Missing or unreachable sockets return `Err`, never partial data.
 
 ## Packaging
