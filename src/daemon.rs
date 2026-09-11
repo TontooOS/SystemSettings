@@ -6,10 +6,6 @@
 //! (`com.tontoo.systemsettings`). No UI code uses this module yet;
 //! frontend wiring is a later step.
 //!
-//! The Customize page is the first daemon-wired UI: `customize_get`
-//! (public read) loads the effective wallpaper pack, accent color and
-//! theme, `customize_set` (private write) persists partial updates.
-//!
 //! The protocol is newline-delimited JSON over a unix socket:
 //! `{"id": 1, "op": ..., "params": {...}}` with replies shaped
 //! `{"id": 1, "ok": bool, "result": ...}` or `{"id": 1, "ok": false,
@@ -175,47 +171,6 @@ pub fn forget(ssid: &str) -> Result<bool, String> {
         .unwrap_or(false))
 }
 
-/// Effective desktop customization as reported by `customize_get`.
-/// Missing fields fall back to the daemon defaults (`THAOELAKE`,
-/// `orange`, `dark`).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
-#[serde(default)]
-pub struct CustomizeSettings {
-    pub wallpaper: String,
-    pub accent: String,
-    pub theme: String,
-}
-
-impl Default for CustomizeSettings {
-    fn default() -> Self {
-        Self {
-            wallpaper: "THAOELAKE".to_string(),
-            accent: "orange".to_string(),
-            theme: "dark".to_string(),
-        }
-    }
-}
-
-/// Read the effective customization (`customize_get`, public).
-pub fn customize_get() -> Result<CustomizeSettings, String> {
-    let result = call("customize_get", serde_json::json!({}))?;
-    serde_json::from_value(result).map_err(|e| format!("customize get invalid: {}", e))
-}
-
-/// Apply a partial customization update (`customize_set`, private).
-/// `None` leaves the key untouched. Returns the effective settings.
-pub fn customize_set(
-    wallpaper: Option<&str>,
-    accent: Option<&str>,
-    theme: Option<&str>,
-) -> Result<CustomizeSettings, String> {
-    let result = call(
-        "customize_set",
-        serde_json::json!({"wallpaper": wallpaper, "accent": accent, "theme": theme}),
-    )?;
-    serde_json::from_value(result).map_err(|e| format!("customize set invalid: {}", e))
-}
-
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -330,68 +285,6 @@ mod tests {
         );
         let err = connect("Nope", None, false).unwrap_err();
         assert!(err.contains("wifi connect failed"));
-        std::env::remove_var("SETTINGS_SOCKET");
-    }
-
-    #[test]
-    fn customize_get_roundtrip() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let path = unique_socket("customize-get");
-        std::env::set_var("SETTINGS_SOCKET", &path);
-        serve_once(
-            path.clone(),
-            serde_json::json!({"id": 1, "ok": true, "result":
-                {"wallpaper": "SONOMA", "accent": "blue", "theme": "light"}}),
-        );
-        let settings = customize_get().unwrap();
-        assert_eq!(
-            settings,
-            CustomizeSettings {
-                wallpaper: "SONOMA".to_string(),
-                accent: "blue".to_string(),
-                theme: "light".to_string(),
-            }
-        );
-        std::env::remove_var("SETTINGS_SOCKET");
-    }
-
-    #[test]
-    fn customize_get_missing_fields_fall_back_to_defaults() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let path = unique_socket("customize-partial");
-        std::env::set_var("SETTINGS_SOCKET", &path);
-        serve_once(
-            path.clone(),
-            serde_json::json!({"id": 1, "ok": true, "result": {"theme": "light"}}),
-        );
-        let settings = customize_get().unwrap();
-        assert_eq!(settings.wallpaper, "THAOELAKE");
-        assert_eq!(settings.accent, "orange");
-        assert_eq!(settings.theme, "light");
-        std::env::remove_var("SETTINGS_SOCKET");
-    }
-
-    #[test]
-    fn customize_set_roundtrip_and_error() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let path = unique_socket("customize-set");
-        std::env::set_var("SETTINGS_SOCKET", &path);
-        serve_once(
-            path.clone(),
-            serde_json::json!({"id": 1, "ok": true, "result":
-                {"wallpaper": "VENTURA", "accent": "orange", "theme": "dark"}}),
-        );
-        let applied = customize_set(Some("VENTURA"), None, None).unwrap();
-        assert_eq!(applied.wallpaper, "VENTURA");
-
-        let path = unique_socket("customize-set-error");
-        std::env::set_var("SETTINGS_SOCKET", &path);
-        serve_once(
-            path.clone(),
-            serde_json::json!({"id": 1, "ok": false, "error": "customize set failed: unknown theme"}),
-        );
-        let err = customize_set(None, None, Some("sepia")).unwrap_err();
-        assert!(err.contains("unknown theme"));
         std::env::remove_var("SETTINGS_SOCKET");
     }
 }

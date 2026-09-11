@@ -32,11 +32,6 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
-- 2026-09-11: Customize category (orange `paintbrush.fill` icon after
-  Developer, wallpaper pack picker from `/System/User/Wallpapers`,
-  accent buttons, Dark Mode toggle). First daemon-wired UI via
-  `customize_get`/`customize_set` (`src/daemon.rs`), falls back to
-  built-in defaults when the daemon is unreachable.
 - 2026-09-11: Renamed Siri AI to Tinti AI (`src/views/tinti_ai.rs`,
   `tinti_ai.*` + `sidebar.tinti_ai` + `spotlight.tinti_suggestions` keys in
   all `lang` files, stale top-level `lang/` synced with `Resources/lang/`,

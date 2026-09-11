@@ -58,8 +58,6 @@ CoreIcon generates the icon PNGs at render time.
 | `item` | `lang::t("sidebar.app_settings")` + `SidebarIcon::file(...)` (bundled PNG, used as-is) |
 | `section` | `""` (empty gap before the Developer group) |
 | `item` | `lang::t("sidebar.developer")` + `SidebarIcon::sf("hammer.fill", gray)` |
-| `section` | `""` (empty gap before the Customize group) |
-| `item` | `lang::t("sidebar.customize")` + `SidebarIcon::sf("paintbrush.fill", orange)` |
 | `section` | `""` (empty gap before the Notifications group) |
 | `item` | `lang::t("sidebar.notifications")` + `SidebarIcon::sf("bell.badge.fill", red)` |
 | `item` | `lang::t("sidebar.sound")` + `SidebarIcon::sf("speaker.wave.3.fill", pink)` |
@@ -601,38 +599,13 @@ a Developer Mode toggle (off) plus an API Logs row.
 | `developer.api_logs` | `API Logs` | `API-Protokolle` |
 | `developer.api_logs.detail` | `Minimal` | `Minimal` |
 
-## Customize page
-
-`src/views/customize.rs`: header with the orange `paintbrush.fill` icon,
-a wallpaper pack picker (packs from `/System/User/Wallpapers`,
-`TONTOO_WALLPAPERS_DIR` override; display names from each pack's
-`wallpaper.fish` manifest), accent color buttons (orange/blue/green/
-purple) and a Dark Mode toggle. First daemon-wired UI: initial values
-come from `customize_get`, changes persist via `customize_set`; when the
-daemon is unreachable the page falls back to the built-in defaults
-(`THAOELAKE`/`orange`/`dark`).
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.customize` | `Customize` | `Anpassen` |
-| `customize.title` | `Customize` | `Anpassen` |
-| `customize.header.subtitle` | `Personalize wallpaper, accent color and theme.` | `Hintergrundbild, Akzentfarbe und Theme anpassen.` |
-| `customize.wallpaper` | `Wallpaper` | `Hintergrundbild` |
-| `customize.accent` | `Accent Color` | `Akzentfarbe` |
-| `customize.dark_mode` | `Dark Mode` | `Dark Mode` |
-| `customize.accent.orange` | `Orange` | `Orange` |
-| `customize.accent.blue` | `Blue` | `Blau` |
-| `customize.accent.green` | `Green` | `Grün` |
-| `customize.accent.purple` | `Purple` | `Lila` |
-
 ## Daemon backend
 
 `src/daemon.rs` wires the app to the settings daemon over its unix socket
 (`SETTINGS_SOCKET` override, else `/run/tontoo-settings.sock`). It covers
-the public read ops (`wifi_list`, `wifi_status`, `customize_get`) and the
-private write ops (`wifi_connect`, `wifi_disconnect`, `wifi_enable`,
-`wifi_disable`, `wifi_forget`, `customize_set`) reserved for this app
-(`com.tontoo.systemsettings`).
+the public read ops (`wifi_list`, `wifi_status`) and the private write ops
+(`wifi_connect`, `wifi_disconnect`, `wifi_enable`, `wifi_disable`,
+`wifi_forget`) reserved for this app (`com.tontoo.systemsettings`).
 
 ```rust
 pub fn list() -> Result<Vec<WifiNetwork>, String>
@@ -641,14 +614,12 @@ pub fn connect(ssid: &str, password: Option<&str>, hidden: bool) -> Result<WifiS
 pub fn disconnect() -> Result<(), String>
 pub fn set_enabled(enabled: bool) -> Result<(), String>
 pub fn forget(ssid: &str) -> Result<bool, String>
-pub fn customize_get() -> Result<CustomizeSettings, String>
-pub fn customize_set(wallpaper: Option<&str>, accent: Option<&str>, theme: Option<&str>) -> Result<CustomizeSettings, String>
 ```
 
 Rules:
 
-- The Customize page is the first daemon-wired UI; the Wi-Fi page keeps
-  showing example content until the frontend step connects it.
+- Backend wiring only: no UI code uses this module yet, the Wi-Fi page
+  keeps showing example content until the frontend step connects it.
 - Missing or unreachable sockets return `Err`, never partial data.
 
 ## Packaging
