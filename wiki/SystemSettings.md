@@ -364,18 +364,18 @@ then Tinti Suggestions (on) and Recent Searches (off) toggles.
 
 `src/views/wallpaper.rs`: current wallpaper card (rounded preview
 thumbnail, name, fill mode dropdown) plus an available wallpapers card
-(premade grid in macOS release order, clickable; cells keep their size
-so rows flow with the window width). Rounded thumbnails come from small
-cached files (`gdk-pixbuf` scale-on-load into the temp dir), the 4K/6K
-originals are never loaded into the UI. Clicking a pack opens a
-borderless popup centered on the Settings window: Light/Auto/Dark
-previews side by side (all thumbnail-sized; Auto composites a diagonal
-light/dark split), click selects with an orange accent border, Cancel
-and Set at the bottom. Set applies to the desktop via
-`wallpaper_apply` (daemon resolves the variant and forwards it to the
-compositor crossfade) and refreshes the current card. The app only ever
-talks to the settings daemon, never to the compositor directly; the
-daemon persists the selection.
+(Browse button, horizontal custom row, clickable premade grid in macOS
+release order; cells keep their size so rows flow with the window
+width). Rounded thumbnails come from small cached files
+(`gdk-pixbuf` scale-on-load into the temp dir), the 4K/6K originals are
+never loaded into the UI. Custom cells switch straight to the wallpaper
+on click (no popup; Browse uploads convert to PNG with unique names);
+premade cells open a borderless popup centered on the Settings window
+with Light/Auto/Dark previews side by side, click selects with an
+orange accent border, Cancel and Set at the bottom. Set applies to the
+desktop via `wallpaper_apply` and refreshes the current card. The app
+only ever talks to the settings daemon, never to the compositor
+directly; the daemon persists the selection. All data comes from
 `wallpaper_get` with empty fallbacks when the daemon is unreachable.
 
 | Key | en_us | de_de |
@@ -392,6 +392,11 @@ daemon persists the selection.
 | `wallpaper.fill.center` | `Center` | `Zentrieren` |
 | `wallpaper.fill.tile` | `Tile` | `Kacheln` |
 | `wallpaper.available` | `Available Wallpapers` | `Verfügbare Hintergrundbilder` |
+| `wallpaper.browse` | `Browse...` | `Durchsuchen …` |
+| `wallpaper.open` | `Open` | `Öffnen` |
+| `wallpaper.all_images` | `All images` | `Alle Bilder` |
+| `wallpaper.no_wallpapers` | `No wallpapers found.` | `Keine Hintergrundbilder gefunden.` |
+| `wallpaper.custom` | `Custom` | `Eigene` |
 | `wallpaper.premade` | `Premade` | `Vorinstalliert` |
 | `wallpaper.set` | `Set` | `Setzen` |
 | `wallpaper.cancel` | `Cancel` | `Abbrechen` |

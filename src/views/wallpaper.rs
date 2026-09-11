@@ -1,12 +1,14 @@
 //! Wallpaper settings page for SystemSettings.
 //!
 //! Current wallpaper card (preview thumbnail, name, fill mode dropdown)
-//! plus an available wallpapers card (premade grid; custom uploads come
-//! later). Everything is display only except the fill mode dropdown
-//! (persisted via `wallpaper_set_fill`); nothing here applies the
-//! wallpaper to the desktop. All data comes from the settings daemon
-//! (`wallpaper_get`) with empty fallbacks when it is unreachable. All
-//! text uses SF Pro Display and both `en_us` and `de_de` strings.
+//! plus an available wallpapers card (Browse button, horizontal custom
+//! row, clickable premade grid). Custom cells switch straight to the
+//! wallpaper on click (no popup); premade cells open the apply popup
+//! with Light/Auto/Dark variants. Browse uploads an image file (daemon
+//! converts to PNG). Nothing here renders the desktop itself; all data
+//! and writes go through the settings daemon (`wallpaper_get` and
+//! friends) with empty fallbacks when it is unreachable. All text uses
+//! SF Pro Display and both `en_us` and `de_de` strings.
 
 use super::{markup_label, palette, SF_PRO};
 use crate::daemon;
@@ -16,6 +18,8 @@ use std::rc::Rc;
 
 const CURRENT_THUMB_W: i32 = 96;
 const CURRENT_THUMB_H: i32 = 64;
+const CUSTOM_THUMB_W: i32 = 112;
+const CUSTOM_THUMB_H: i32 = 72;
 const PREMADE_THUMB_W: i32 = 160;
 const PREMADE_THUMB_H: i32 = 100;
 /// Longest cached thumbnail edge (crisp on HiDPI, tiny on disk).
@@ -246,14 +250,57 @@ fn thumb_cell(name: &str, path: &str, width: i32, height: i32, pal_fg: &str) -> 
   cell
 }
 
-/// Fill the premade grid from a wallpaper state. Cells open the apply
-/// popup on click.
+/// Fill the customs row and the premade grid from a wallpaper state.
+/// Custom cells switch straight to the wallpaper on click (no popup);
+/// premade cells open the apply popup. Shows the "No wallpapers found."
+/// placeholder for an empty customs row.
 fn fill_lists(
+  customs_area: &gtk::Box,
   premade_grid: &gtk::FlowBox,
   state: &daemon::WallpaperState,
   pal_fg: &str,
   on_applied: &Rc<dyn Fn(daemon::WallpaperEntry)>,
 ) {
+  while let Some(child) = customs_area.first_child() {
+    customs_area.remove(&child);
+  }
+  if state.customs.is_empty() {
+    let empty = markup_label(&lang::t("wallpaper.no_wallpapers"), 13, "normal", pal_fg);
+    empty.set_halign(gtk::Align::Center);
+    empty.set_xalign(0.5);
+    empty.set_hexpand(true);
+    empty.set_margin_top(12);
+    empty.set_margin_bottom(12);
+    customs_area.append(&empty);
+  } else {
+    let scroll = gtk::ScrolledWindow::new();
+    scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Never);
+    scroll.set_hexpand(true);
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    for entry in &state.customs {
+      let cell = thumb_cell(&entry.name, &entry.path, CUSTOM_THUMB_W, CUSTOM_THUMB_H, pal_fg);
+      if let Some(cursor) = gtk::gdk::Cursor::from_name("pointer", None) {
+        cell.set_cursor(Some(&cursor));
+      }
+      let switch_entry = entry.clone();
+      let switch_applied = on_applied.clone();
+      let gesture = gtk::GestureClick::new();
+      gesture.connect_released(move |_, _, _, _| {
+        match daemon::wallpaper_apply(&switch_entry.kind, &switch_entry.id, "light") {
+          Ok(applied) => {
+            println!("Wallpaper applied: {}", applied.path);
+            switch_applied(applied);
+          }
+          Err(e) => println!("Wallpaper apply failed: {}", e),
+        }
+      });
+      cell.add_controller(gesture);
+      row.append(&cell);
+    }
+    scroll.set_child(Some(&row));
+    customs_area.append(&scroll);
+  }
+
   while let Some(child) = premade_grid.first_child() {
     premade_grid.remove(&child);
   }
@@ -275,6 +322,33 @@ fn fill_lists(
     cell.add_controller(gesture);
     premade_grid.insert(&cell, -1);
   }
+}
+
+/// Image file filters for the Browse dialog: png, jpeg, webp plus every
+/// image format.
+fn browse_filters() -> Vec<gtk::FileFilter> {
+  let mut filters = Vec::new();
+  let png = gtk::FileFilter::new();
+  png.set_name(Some("PNG"));
+  png.add_mime_type("image/png");
+  png.add_pattern("*.png");
+  filters.push(png);
+  let jpeg = gtk::FileFilter::new();
+  jpeg.set_name(Some("JPEG"));
+  jpeg.add_mime_type("image/jpeg");
+  jpeg.add_pattern("*.jpg");
+  jpeg.add_pattern("*.jpeg");
+  filters.push(jpeg);
+  let webp = gtk::FileFilter::new();
+  webp.set_name(Some("WebP"));
+  webp.add_mime_type("image/webp");
+  webp.add_pattern("*.webp");
+  filters.push(webp);
+  let all = gtk::FileFilter::new();
+  all.set_name(Some(&lang::t("wallpaper.all_images")));
+  all.add_mime_type("image/*");
+  filters.push(all);
+  filters
 }
 
 /// Preview file for a popup variant, always thumbnail-sized (never 4K):
@@ -507,13 +581,20 @@ pub(crate) fn build_page() -> gtk::Widget {
   current_card.append(&current_row);
   detail.append(&current_card);
 
-  // Available wallpapers card: premade grid (custom uploads come later).
+  // Available wallpapers card: Browse plus customs row and premade grid.
   let available_card = card(card_color);
+  let available_header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+  available_header.set_hexpand(true);
   let available_title = markup_label(&lang::t("wallpaper.available"), 15, "bold", fg);
   available_title.set_halign(gtk::Align::Start);
   available_title.set_xalign(0.0);
   available_title.set_hexpand(true);
-  available_card.append(&available_title);
+  available_header.append(&available_title);
+  let browse = gtk::Button::with_label(&lang::t("wallpaper.browse"));
+  browse.set_halign(gtk::Align::End);
+  browse.set_valign(gtk::Align::Center);
+  available_header.append(&browse);
+  available_card.append(&available_header);
 
   let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
   separator.set_margin_top(12);
@@ -522,6 +603,10 @@ pub(crate) fn build_page() -> gtk::Widget {
 
   let lists = gtk::Box::new(gtk::Orientation::Vertical, 8);
   lists.set_hexpand(true);
+  lists.append(&section_label("wallpaper.custom", secondary));
+  let customs_area = gtk::Box::new(gtk::Orientation::Vertical, 0);
+  customs_area.set_hexpand(true);
+  lists.append(&customs_area);
   lists.append(&section_label("wallpaper.premade", secondary));
   let premade_grid = gtk::FlowBox::new();
   premade_grid.set_selection_mode(gtk::SelectionMode::None);
@@ -531,7 +616,7 @@ pub(crate) fn build_page() -> gtk::Widget {
   premade_grid.set_column_spacing(12);
   premade_grid.set_hexpand(true);
   lists.append(&premade_grid);
-  // Refresh the current card after a popup apply.
+  // Refresh the current card after an apply; rebuild the lists after Browse.
   let applied_thumb = current_thumb_slot.clone();
   let applied_name = name.clone();
   let on_applied: Rc<dyn Fn(daemon::WallpaperEntry)> = Rc::new(move |applied| {
@@ -543,9 +628,48 @@ pub(crate) fn build_page() -> gtk::Widget {
     }
     set_markup_label(&applied_name, &applied.name, 15, "bold", fg);
   });
-  fill_lists(&premade_grid, &state, fg, &on_applied);
+  fill_lists(&customs_area, &premade_grid, &state, fg, &on_applied);
   available_card.append(&lists);
   detail.append(&available_card);
+
+  // Browse uploads an image file into the customs and refreshes the lists.
+  // The daemon decodes it and stores a PNG (unique names).
+  let customs_refresh = customs_area.clone();
+  let premade_refresh = premade_grid.clone();
+  let browse_applied = on_applied.clone();
+  browse.connect_clicked(move |_| {
+    let dialog = gtk::FileDialog::new();
+    dialog.set_title(&lang::t("wallpaper.browse"));
+    dialog.set_accept_label(Some(&lang::t("wallpaper.open")));
+    let filters = gtk::gio::ListStore::new::<gtk::FileFilter>();
+    for filter in browse_filters() {
+      filters.append(&filter);
+    }
+    dialog.set_filters(Some(&filters));
+    let customs_done = customs_refresh.clone();
+    let premade_done = premade_refresh.clone();
+    let applied_done = browse_applied.clone();
+    dialog.open(
+      None::<&gtk::Window>,
+      None::<&gtk::gio::Cancellable>,
+      move |result| match result {
+        Ok(file) => {
+          if let Some(path) = file.path() {
+            let display = path.to_str().unwrap_or_default().to_string();
+            match daemon::wallpaper_add(&display, None) {
+              Ok(entry) => {
+                println!("Wallpaper added: {}", entry.path);
+                let fresh = daemon::wallpaper_get().unwrap_or_default();
+                fill_lists(&customs_done, &premade_done, &fresh, fg, &applied_done);
+              }
+              Err(e) => println!("Wallpaper add failed: {}", e),
+            }
+          }
+        }
+        Err(e) => println!("Wallpaper browse dismissed: {}", e),
+      },
+    );
+  });
 
   detail.upcast()
 }

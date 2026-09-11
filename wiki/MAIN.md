@@ -32,6 +32,9 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-11: Custom wallpapers back (Browse upload with image
+  filters, horizontal custom row, click switches straight to the
+  wallpaper with no popup; daemon converts to PNG with unique names).
 - 2026-09-11: Instant popup open (Auto split composites from the
   cached small thumbnails instead of decoding the 4K/6K originals;
   single-variant packs show the plain image without a divider).
