@@ -32,6 +32,8 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-11: Fill mode applies live (daemon forwards the mode to the
+  compositor on dropdown change; no app changes needed).
 - 2026-09-11: Current wallpaper thumbnail enlarged (160x100, matches
   the premade thumbs).
 - 2026-09-11: General page rebuilt (centered gear header plus one
