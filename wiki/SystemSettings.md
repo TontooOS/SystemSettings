@@ -240,19 +240,31 @@ details).
 
 ## General page
 
-Example content (`src/views/general.rs`): header with the gray
-`gear` icon (Apple-gray like macOS), title and subtitle, then
-example rows (About, Software Update with details).
+`src/views/general.rs`: centered header card (gear tile, title,
+subtitle) plus one card per row (About, Software Update, Storage,
+AirDrop & Handoff, AutoFill & Passwords, Date & Time, Language &
+Region, Login Items & Extensions, Sharing, Startup Disk, Time Machine,
+Device Management, Transfer or Reset), each with a CoreIcon tile, label
+and chevron. Display only: rows have no click actions yet.
 
 | Key | en_us | de_de |
 |---|---|---|
 | `sidebar.general` | `General` | `General` |
-| `general.title` | `General` | `General` |
-| `general.header.subtitle` | `System information and software updates.` | `Systeminformationen und Softwareupdates.` |
-| `general.about` | `About` | `Über` |
-| `general.about.detail` | `TontooOS` | `TontooOS` |
-| `general.update` | `Software Update` | `Softwareupdate` |
-| `general.update.detail` | `TontooOS 26.1` | `TontooOS 26.1` |
+| `general.title` | `General` | `Allgemein` |
+| `general.header.subtitle` | `Manage your overall setup and preferences for TontooOS, such as software updates, device language, AirDrop, and more.` | `Verwalte dein gesamtes Setup und deine Einstellungen für TontooOS, wie Softwareupdates, Gerätesprache, AirDrop und mehr.` |
+| `general.about` | `About` | `Info` |
+| `general.software_update` | `Software Update` | `Softwareupdate` |
+| `general.storage` | `Storage` | `Speicher` |
+| `general.airdrop` | `AirDrop & Handoff` | `AirDrop & Handoff` |
+| `general.autofill` | `AutoFill & Passwords` | `AutoFill & Passwörter` |
+| `general.datetime` | `Date & Time` | `Datum & Uhrzeit` |
+| `general.language` | `Language & Region` | `Sprache & Region` |
+| `general.login_items` | `Login Items & Extensions` | `Anmeldeobjekte & Erweiterungen` |
+| `general.sharing` | `Sharing` | `Freigaben` |
+| `general.startup_disk` | `Startup Disk` | `Startvolume` |
+| `general.time_machine` | `Time Machine` | `Time Machine` |
+| `general.device_management` | `Device Management` | `Geräteverwaltung` |
+| `general.transfer_reset` | `Transfer or Reset` | `Übertragen oder Zurücksetzen` |
 
 ## Accessibility page
 

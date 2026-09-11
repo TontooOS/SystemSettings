@@ -32,6 +32,13 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-11: Current wallpaper thumbnail enlarged (160x100, matches
+  the premade thumbs).
+- 2026-09-11: General page rebuilt (centered gear header plus one
+  card per row: About, Software Update, Storage, AirDrop & Handoff,
+  AutoFill & Passwords, Date & Time, Language & Region, Login Items &
+  Extensions, Sharing, Startup Disk, Time Machine, Device Management,
+  Transfer or Reset; display only, no click actions yet).
 - 2026-09-11: Exact-size grid thumbnails (cover-crop from header
   dimensions plus center crop, so cells keep their width and rows flow
   with the window width instead of stacking one per row).

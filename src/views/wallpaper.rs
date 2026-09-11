@@ -16,8 +16,8 @@ use crate::lang;
 use gtk::prelude::*;
 use std::rc::Rc;
 
-const CURRENT_THUMB_W: i32 = 96;
-const CURRENT_THUMB_H: i32 = 64;
+const CURRENT_THUMB_W: i32 = 160;
+const CURRENT_THUMB_H: i32 = 100;
 const CUSTOM_THUMB_W: i32 = 112;
 const CUSTOM_THUMB_H: i32 = 72;
 const PREMADE_THUMB_W: i32 = 160;
