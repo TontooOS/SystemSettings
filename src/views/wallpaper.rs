@@ -302,17 +302,25 @@ fn preview_file(entry: &daemon::WallpaperEntry, variant: &str) -> Option<std::pa
       small(&dark)
     }
     "auto" => {
-      let light = std::path::PathBuf::from(&entry.path);
-      let dark = if entry.path_dark.is_empty() {
-        light.clone()
+      let light_src = std::path::PathBuf::from(&entry.path);
+      let dark_src = if entry.path_dark.is_empty() {
+        light_src.clone()
       } else {
         std::path::PathBuf::from(&entry.path_dark)
       };
-      if light.is_file() && dark.is_file() {
-        split_preview(&light, &dark, PREVIEW_W, PREVIEW_H)
-      } else {
-        small(&entry.path)
+      if !light_src.is_file() || !dark_src.is_file() {
+        return small(&entry.path);
       }
+      // Fast path: composite from the cached small thumbnails instead of
+      // decoding the 4K/6K originals (that blocked the popup for seconds).
+      let light_small = cached_thumb(&light_src).unwrap_or(light_src.clone());
+      let dark_small = cached_thumb(&dark_src).unwrap_or(dark_src);
+      if light_small == dark_small {
+        // Single-variant pack: plain image, no fake divider.
+        return small(&entry.path);
+      }
+      split_preview(&light_small, &dark_small, PREVIEW_W, PREVIEW_H)
+        .or_else(|| small(&entry.path))
     }
     _ => small(&entry.path),
   }
@@ -606,5 +614,50 @@ mod tests {
   fn preview_modes_resolve() {
     assert_eq!(mode_key("auto"), "wallpaper.mode.auto");
     assert_eq!(PREVIEW_ORDER, &["light", "auto", "dark"]);
+  }
+
+  fn preview_entry(id: &str, light: &str, dark: &str) -> crate::daemon::WallpaperEntry {
+    crate::daemon::WallpaperEntry {
+      kind: "premade".to_string(),
+      id: id.to_string(),
+      name: id.to_string(),
+      path: light.to_string(),
+      path_dark: dark.to_string(),
+    }
+  }
+
+  #[test]
+  fn preview_file_prefers_small_files_and_skips_divider_for_singles() {
+    let dir = std::env::temp_dir().join("systemsettings-preview-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let light = solid_png(&dir, "day.png", [200, 50, 50]).to_str().unwrap().to_string();
+    let dark = solid_png(&dir, "night.png", [50, 50, 200]).to_str().unwrap().to_string();
+
+    // Two variants: auto composites from the small thumbs (fast open).
+    let duo = preview_entry("DUO", &light, &dark);
+    let split = preview_file(&duo, "auto").unwrap();
+    assert!(split.is_file());
+    let img = image::open(&split).unwrap().to_rgb8();
+    assert_eq!(img.dimensions(), (PREVIEW_W, PREVIEW_H));
+    // Light and dark arms resolve cached small files.
+    let light_file = preview_file(&duo, "light").unwrap();
+    let dark_file = preview_file(&duo, "dark").unwrap();
+    assert!(light_file.is_file());
+    assert!(dark_file.is_file());
+    assert_ne!(light_file, dark_file);
+
+    // Single variant: plain image, no divider stripe.
+    let solo = preview_entry("SOLO", &light, "");
+    let plain = preview_file(&solo, "auto").unwrap();
+    let img = image::open(&plain).unwrap().to_rgb8();
+    assert_eq!(
+      img.pixels().filter(|p| **p == image::Rgb([255, 255, 255])).count(),
+      0
+    );
+    // Missing files yield no preview.
+    let missing = preview_entry("MISS", "/none", "");
+    assert!(preview_file(&missing, "auto").is_none());
+    let _ = std::fs::remove_dir_all(&dir);
   }
 }

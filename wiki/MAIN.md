@@ -32,6 +32,9 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-11: Instant popup open (Auto split composites from the
+  cached small thumbnails instead of decoding the 4K/6K originals;
+  single-variant packs show the plain image without a divider).
 - 2026-09-11: Wallpaper popup reworked (borderless, centered on the
   app; Light/Auto/Dark previews side by side, all thumbnail-sized;
   click selects with an accent border) and grid cells keep their size
