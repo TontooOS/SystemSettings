@@ -362,13 +362,15 @@ then Tinti Suggestions (on) and Recent Searches (off) toggles.
 
 ## Wallpaper page
 
-`src/views/wallpaper.rs`: current wallpaper card (preview thumbnail,
-name, fill mode dropdown) plus an available wallpapers card (Browse
-button, horizontal custom row, premade grid). Display only except the
-fill mode dropdown (persisted via `wallpaper_set_fill`) and Browse
-(uploads via `wallpaper_add`, daemon converts to PNG); nothing here
-applies the wallpaper to the desktop. All data comes from
-`wallpaper_get` with empty fallbacks when the daemon is unreachable.
+`src/views/wallpaper.rs`: current wallpaper card (rounded preview
+thumbnail, name, fill mode dropdown) plus an available wallpapers card
+(premade grid in macOS release order). Rounded thumbnails come from
+small cached files (`gdk-pixbuf` scale-on-load into the temp dir), the
+4K/6K originals are never loaded into the UI. Display only except the
+fill mode dropdown (persisted via `wallpaper_set_fill`); custom uploads
+come later; nothing here applies the wallpaper to the desktop. All data
+comes from `wallpaper_get` with empty fallbacks when the daemon is
+unreachable.
 
 | Key | en_us | de_de |
 |---|---|---|
@@ -384,11 +386,6 @@ applies the wallpaper to the desktop. All data comes from
 | `wallpaper.fill.center` | `Center` | `Zentrieren` |
 | `wallpaper.fill.tile` | `Tile` | `Kacheln` |
 | `wallpaper.available` | `Available Wallpapers` | `Verfügbare Hintergrundbilder` |
-| `wallpaper.browse` | `Browse...` | `Durchsuchen …` |
-| `wallpaper.open` | `Open` | `Öffnen` |
-| `wallpaper.all_images` | `All images` | `Alle Bilder` |
-| `wallpaper.no_wallpapers` | `No wallpapers found.` | `Keine Hintergrundbilder gefunden.` |
-| `wallpaper.custom` | `Custom` | `Eigene` |
 | `wallpaper.premade` | `Premade` | `Vorinstalliert` |
 
 ## Notifications page

@@ -33,10 +33,10 @@ See [SystemSettings.md](SystemSettings.md) for details.
 ## Changelog
 
 - 2026-09-11: Wallpaper page rebuilt (current wallpaper card with
-  preview, name and fill mode dropdown; available wallpapers card with
-  Browse upload, horizontal custom row, premade grid). Display only
-  except fill mode and uploads; daemon-wired via `wallpaper_get`/
-  `wallpaper_set_fill`/`wallpaper_add` with empty fallbacks.
+  rounded preview, name and fill mode dropdown; premade grid in macOS
+  release order, cached thumbnails). Display only except fill mode;
+  daemon-wired via `wallpaper_get`/`wallpaper_set_fill` with empty
+  fallbacks. Custom uploads come later.
 - 2026-09-11: Renamed Siri AI to Tinti AI (`src/views/tinti_ai.rs`,
   `tinti_ai.*` + `sidebar.tinti_ai` + `spotlight.tinti_suggestions` keys in
   all `lang` files, stale top-level `lang/` synced with `Resources/lang/`,

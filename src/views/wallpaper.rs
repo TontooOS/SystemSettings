@@ -1,22 +1,25 @@
 //! Wallpaper settings page for SystemSettings.
 //!
 //! Current wallpaper card (preview thumbnail, name, fill mode dropdown)
-//! plus an available wallpapers card (Browse button, horizontal custom
-//! row, premade grid). Everything is display only except the fill mode
-//! dropdown (persisted via `wallpaper_set_fill`) and Browse (uploads via
-//! `wallpaper_add`); nothing here applies the wallpaper to the desktop.
-//! All data comes from the settings daemon (`wallpaper_get`) with empty
-//! fallbacks when it is unreachable. All text uses SF Pro Display and
-//! both `en_us` and `de_de` strings.
+//! plus an available wallpapers card (premade grid; custom uploads come
+//! later). Everything is display only except the fill mode dropdown
+//! (persisted via `wallpaper_set_fill`); nothing here applies the
+//! wallpaper to the desktop. All data comes from the settings daemon
+//! (`wallpaper_get`) with empty fallbacks when it is unreachable. All
+//! text uses SF Pro Display and both `en_us` and `de_de` strings.
 
 use super::{markup_label, palette};
 use crate::daemon;
 use crate::lang;
 use gtk::prelude::*;
 
-const CURRENT_THUMB_PX: i32 = 64;
-const CUSTOM_THUMB_PX: i32 = 72;
-const PREMADE_THUMB_PX: i32 = 96;
+const CURRENT_THUMB_W: i32 = 96;
+const CURRENT_THUMB_H: i32 = 64;
+const PREMADE_THUMB_W: i32 = 160;
+const PREMADE_THUMB_H: i32 = 100;
+/// Longest cached thumbnail edge (crisp on HiDPI, tiny on disk).
+const THUMB_MAX_PX: i32 = 320;
+const THUMB_CORNER_PX: i32 = 12;
 
 /// Fill mode ids in dropdown order (daemon `wallpaper` values).
 pub(crate) const FILL_ORDER: &[&str] = &["fill", "fit", "stretch", "center", "tile"];
@@ -35,8 +38,7 @@ pub(crate) fn fill_index(fill: &str) -> u32 {
 }
 
 /// Rounded card container in the page palette color.
-fn card(pal_card: &str) -> gtk::Box {
-  let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
+fn card(pal_card: &str) -> gtk::Box {  let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
   card.set_hexpand(true);
   crate::UIKit::apply_css(
     &card,
@@ -56,14 +58,86 @@ fn section_label(text_key: &str, pal_secondary: &str) -> gtk::Label {
   label
 }
 
-/// Thumbnail cell: preview image (when the file exists) plus name below.
-fn thumb_cell(name: &str, path: &str, px: i32, pal_fg: &str) -> gtk::Box {
+/// Directory caching scaled-down thumbnails (never the full images).
+pub(crate) fn thumb_cache_dir() -> std::path::PathBuf {
+  std::env::temp_dir().join("tontoo-wallpaper-thumbs")
+}
+
+/// Cache file for a source image, keyed by path, size and mtime, so an
+/// updated file regenerates. Returns `None` for missing sources.
+pub(crate) fn thumb_cache_path(
+  cache_dir: &std::path::Path,
+  source: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+  let meta = std::fs::metadata(source).ok()?;
+  if !meta.is_file() {
+    return None;
+  }
+  use std::collections::hash_map::DefaultHasher;
+  use std::hash::{Hash, Hasher};
+  let mut hash = DefaultHasher::new();
+  source.to_string_lossy().hash(&mut hash);
+  meta.len().hash(&mut hash);
+  meta.modified().ok().hash(&mut hash);
+  Some(cache_dir.join(format!("{:016x}.png", hash.finish())))
+}
+
+/// Scaled-down cached PNG for a source image (4K/6K files stay on disk).
+/// Falls back to the source path when caching fails.
+pub(crate) fn cached_thumb(source: &std::path::Path) -> Option<std::path::PathBuf> {
+  let cache_dir = thumb_cache_dir();
+  let cached = thumb_cache_path(&cache_dir, source)?;
+  if cached.is_file() {
+    return Some(cached);
+  }
+  if std::fs::create_dir_all(&cache_dir).is_err() {
+    return Some(source.to_path_buf());
+  }
+  let pixbuf = gdk_pixbuf::Pixbuf::from_file_at_scale(
+    source.to_str()?,
+    THUMB_MAX_PX,
+    THUMB_MAX_PX,
+    true,
+  )
+  .ok()?;
+  if pixbuf.savev(&cached, "png", &[]).is_err() {
+    return Some(source.to_path_buf());
+  }
+  Some(cached)
+}
+
+/// Rounded thumbnail: cached small file in a cropped `Picture` with a
+/// border radius (full-res images are never loaded into the UI).
+/// Returns `None` when the source is missing.
+fn thumb_picture(path: &str, width: i32, height: i32) -> Option<gtk::Picture> {
+  if path.is_empty() {
+    return None;
+  }
+  let source = std::path::Path::new(path);
+  if !source.is_file() {
+    return None;
+  }
+  let file = cached_thumb(source).unwrap_or_else(|| source.to_path_buf());
+  let picture = gtk::Picture::for_filename(file.to_str()?);
+  picture.set_content_fit(gtk::ContentFit::Cover);
+  picture.set_size_request(width, height);
+  picture.add_css_class("wallpaper-thumb");
+  crate::UIKit::apply_css(
+    &picture,
+    &format!(
+      "picture.wallpaper-thumb {{ border-radius: {}px; }}",
+      THUMB_CORNER_PX
+    ),
+  );
+  Some(picture)
+}
+
+/// Thumbnail cell: rounded preview (when the file exists) plus name below.
+fn thumb_cell(name: &str, path: &str, width: i32, height: i32, pal_fg: &str) -> gtk::Box {
   let cell = gtk::Box::new(gtk::Orientation::Vertical, 6);
-  if !path.is_empty() && std::path::Path::new(path).is_file() {
-    let image = gtk::Image::from_file(path);
-    image.set_pixel_size(px);
-    image.set_halign(gtk::Align::Center);
-    cell.append(&image);
+  if let Some(picture) = thumb_picture(path, width, height) {
+    picture.set_halign(gtk::Align::Center);
+    cell.append(&picture);
   }
   let label = markup_label(name, 12, "normal", pal_fg);
   label.set_halign(gtk::Align::Center);
@@ -75,71 +149,15 @@ fn thumb_cell(name: &str, path: &str, px: i32, pal_fg: &str) -> gtk::Box {
   cell
 }
 
-/// Fill the customs row and the premade grid from a wallpaper state.
-/// Shows the "No wallpapers found." placeholder for an empty customs row.
-fn fill_lists(
-  customs_area: &gtk::Box,
-  premade_grid: &gtk::FlowBox,
-  state: &daemon::WallpaperState,
-  pal_fg: &str,
-) {
-  while let Some(child) = customs_area.first_child() {
-    customs_area.remove(&child);
-  }
-  if state.customs.is_empty() {
-    let empty = markup_label(&lang::t("wallpaper.no_wallpapers"), 13, "normal", pal_fg);
-    empty.set_halign(gtk::Align::Center);
-    empty.set_xalign(0.5);
-    empty.set_hexpand(true);
-    empty.set_margin_top(12);
-    empty.set_margin_bottom(12);
-    customs_area.append(&empty);
-  } else {
-    let scroll = gtk::ScrolledWindow::new();
-    scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Never);
-    scroll.set_hexpand(true);
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    for entry in &state.customs {
-      row.append(&thumb_cell(&entry.name, &entry.path, CUSTOM_THUMB_PX, pal_fg));
-    }
-    scroll.set_child(Some(&row));
-    customs_area.append(&scroll);
-  }
-
+/// Fill the premade grid from a wallpaper state.
+fn fill_lists(premade_grid: &gtk::FlowBox, state: &daemon::WallpaperState, pal_fg: &str) {
   while let Some(child) = premade_grid.first_child() {
     premade_grid.remove(&child);
   }
   for entry in &state.premade {
-    let cell = thumb_cell(&entry.name, &entry.path, PREMADE_THUMB_PX, pal_fg);
+    let cell = thumb_cell(&entry.name, &entry.path, PREMADE_THUMB_W, PREMADE_THUMB_H, pal_fg);
     premade_grid.insert(&cell, -1);
   }
-}
-
-/// Image file filters for the Browse dialog: png, jpeg, webp plus every
-/// image format.
-fn browse_filters() -> Vec<gtk::FileFilter> {
-  let mut filters = Vec::new();
-  let png = gtk::FileFilter::new();
-  png.set_name(Some("PNG"));
-  png.add_mime_type("image/png");
-  png.add_pattern("*.png");
-  filters.push(png);
-  let jpeg = gtk::FileFilter::new();
-  jpeg.set_name(Some("JPEG"));
-  jpeg.add_mime_type("image/jpeg");
-  jpeg.add_pattern("*.jpg");
-  jpeg.add_pattern("*.jpeg");
-  filters.push(jpeg);
-  let webp = gtk::FileFilter::new();
-  webp.set_name(Some("WebP"));
-  webp.add_mime_type("image/webp");
-  webp.add_pattern("*.webp");
-  filters.push(webp);
-  let all = gtk::FileFilter::new();
-  all.set_name(Some(&lang::t("wallpaper.all_images")));
-  all.add_mime_type("image/*");
-  filters.push(all);
-  filters
 }
 
 /// The Wallpaper detail page (directly on the screen).
@@ -164,9 +182,7 @@ pub(crate) fn build_page() -> gtk::Widget {
   let current_row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
   current_row.set_hexpand(true);
   if let Some(entry) = state.current.as_ref() {
-    if !entry.path.is_empty() && std::path::Path::new(&entry.path).is_file() {
-      let thumb = gtk::Image::from_file(&entry.path);
-      thumb.set_pixel_size(CURRENT_THUMB_PX);
+    if let Some(thumb) = thumb_picture(&entry.path, CURRENT_THUMB_W, CURRENT_THUMB_H) {
       thumb.set_valign(gtk::Align::Start);
       current_row.append(&thumb);
     }
@@ -213,20 +229,13 @@ pub(crate) fn build_page() -> gtk::Widget {
   current_card.append(&current_row);
   detail.append(&current_card);
 
-  // Available wallpapers card: Browse plus customs row and premade grid.
+  // Available wallpapers card: premade grid (custom uploads come later).
   let available_card = card(card_color);
-  let available_header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-  available_header.set_hexpand(true);
   let available_title = markup_label(&lang::t("wallpaper.available"), 15, "bold", fg);
   available_title.set_halign(gtk::Align::Start);
   available_title.set_xalign(0.0);
   available_title.set_hexpand(true);
-  available_header.append(&available_title);
-  let browse = gtk::Button::with_label(&lang::t("wallpaper.browse"));
-  browse.set_halign(gtk::Align::End);
-  browse.set_valign(gtk::Align::Center);
-  available_header.append(&browse);
-  available_card.append(&available_header);
+  available_card.append(&available_title);
 
   let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
   separator.set_margin_top(12);
@@ -235,57 +244,18 @@ pub(crate) fn build_page() -> gtk::Widget {
 
   let lists = gtk::Box::new(gtk::Orientation::Vertical, 8);
   lists.set_hexpand(true);
-  lists.append(&section_label("wallpaper.custom", secondary));
-  let customs_area = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  customs_area.set_hexpand(true);
-  lists.append(&customs_area);
   lists.append(&section_label("wallpaper.premade", secondary));
   let premade_grid = gtk::FlowBox::new();
   premade_grid.set_selection_mode(gtk::SelectionMode::None);
-  premade_grid.set_max_children_per_line(4);
+  // No per-line cap: the boxes flow responsively, as many per row as the
+  // window width fits.
   premade_grid.set_row_spacing(12);
   premade_grid.set_column_spacing(12);
   premade_grid.set_hexpand(true);
   lists.append(&premade_grid);
-  fill_lists(&customs_area, &premade_grid, &state, fg);
+  fill_lists(&premade_grid, &state, fg);
   available_card.append(&lists);
   detail.append(&available_card);
-
-  // Browse uploads into the customs and refreshes the lists.
-  let customs_refresh = customs_area.clone();
-  let premade_refresh = premade_grid.clone();
-  browse.connect_clicked(move |_| {
-    let dialog = gtk::FileDialog::new();
-    dialog.set_title(&lang::t("wallpaper.browse"));
-    dialog.set_accept_label(Some(&lang::t("wallpaper.open")));
-    let filters = gtk::gio::ListStore::new::<gtk::FileFilter>();
-    for filter in browse_filters() {
-      filters.append(&filter);
-    }
-    dialog.set_filters(Some(&filters));
-    let customs_done = customs_refresh.clone();
-    let premade_done = premade_refresh.clone();
-    dialog.open(
-      None::<&gtk::Window>,
-      None::<&gtk::gio::Cancellable>,
-      move |result| match result {
-        Ok(file) => {
-          if let Some(path) = file.path() {
-            let display = path.to_str().unwrap_or_default().to_string();
-            match daemon::wallpaper_add(&display, None) {
-              Ok(entry) => {
-                println!("Wallpaper added: {}", entry.path);
-                let fresh = daemon::wallpaper_get().unwrap_or_default();
-                fill_lists(&customs_done, &premade_done, &fresh, fg);
-              }
-              Err(e) => println!("Wallpaper add failed: {}", e),
-            }
-          }
-        }
-        Err(e) => println!("Wallpaper browse dismissed: {}", e),
-      },
-    );
-  });
 
   detail.upcast()
 }
@@ -301,5 +271,19 @@ mod tests {
     assert_eq!(fill_index("tile"), 4);
     assert_eq!(fill_index("melt"), 0);
     assert_eq!(fill_key("center"), "wallpaper.fill.center");
+  }
+
+  #[test]
+  fn thumb_cache_key_tracks_file_and_misses_missing() {
+    let dir = std::env::temp_dir().join("systemsettings-thumb-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("a.png");
+    assert!(thumb_cache_path(&dir, &source).is_none());
+    std::fs::write(&source, b"fake-png").unwrap();
+    let first = thumb_cache_path(&dir, &source).unwrap();
+    assert_eq!(first.extension().and_then(|e| e.to_str()), Some("png"));
+    assert_eq!(thumb_cache_path(&dir, &source).unwrap(), first);
+    let _ = std::fs::remove_dir_all(&dir);
   }
 }
