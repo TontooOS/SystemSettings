@@ -29,8 +29,8 @@ use std::sync::{Arc, Mutex};
 /// 13 Notifications, 14 Sound, 15 Focus, 16 Screen Time, 17 Lock Screen,
 /// 18 Privacy & Security, 19 Touch ID & Password, 20 Users & Groups,
 /// 21 Internet Accounts, 22 Octo Cloud, 23 Keyboard, 24 Mouse & Trackpad,
-/// 25 Printers, 26 App Settings, 27 Developer.
-const PAGE_TITLES: [&str; 28] = [
+/// 25 Printers, 26 App Settings, 27 Developer, 28 Customize.
+const PAGE_TITLES: [&str; 29] = [
   "wifi.title",
   "bluetooth.title",
   "network.title",
@@ -59,6 +59,7 @@ const PAGE_TITLES: [&str; 28] = [
   "printers.title",
   "app_settings.title",
   "developer.title",
+  "customize.title",
 ];
 
 /// Shared back/forward navigation state (Send + Sync for `on_select`).
@@ -149,6 +150,7 @@ pub struct SettingsRoot {
   printers_page: gtk::Widget,
   app_settings_page: gtk::Widget,
   developer_page: gtk::Widget,
+  customize_page: gtk::Widget,
   nav: Arc<Mutex<NavState>>,
 }
 
@@ -183,6 +185,7 @@ fn page_for<'a>(
   printers: &'a gtk::Widget,
   app_settings: &'a gtk::Widget,
   developer: &'a gtk::Widget,
+  customize: &'a gtk::Widget,
 ) -> &'a gtk::Widget {
   match index {
     0 => wifi,
@@ -212,6 +215,8 @@ fn page_for<'a>(
     24 => mouse,
     25 => printers,
     26 => app_settings,
+    27 => developer,
+    28 => customize,
     _ => developer,
   }
 }
@@ -246,6 +251,7 @@ impl SettingsRoot {
     let printers_page = super::printers::build_page();
     let app_settings_page = super::app_settings::build_page();
     let developer_page = super::developer::build_page();
+    let customize_page = super::customize::build_page();
 
     // Navigation state, shared with the selection handler and poller.
     let nav: Arc<Mutex<NavState>> = Arc::new(Mutex::new(NavState::default()));
@@ -463,6 +469,14 @@ impl SettingsRoot {
           Color::from_rgb(142, 142, 147),
         ),
       )
+      .section("")
+      .item(
+        lang::t("sidebar.customize"),
+        SidebarIcon::sf(
+          "paintbrush.fill",
+          Color::from_rgb(255, 107, 43),
+        ),
+      )
       .selected(0)
       .search_placeholder(lang::t("sidebar.search"))
       .background_color(sidebar_bg)
@@ -503,6 +517,7 @@ impl SettingsRoot {
       printers_page,
       app_settings_page,
       developer_page,
+      customize_page,
       nav,
     }
   }
@@ -638,6 +653,7 @@ impl Widget for SettingsRoot {
       &self.printers_page,
       &self.app_settings_page,
       &self.developer_page,
+      &self.customize_page,
     ));
     column.append(&detail);
     outer.append(&column);
@@ -678,6 +694,7 @@ impl Widget for SettingsRoot {
     let printers_poller = self.printers_page.clone();
     let app_settings_poller = self.app_settings_page.clone();
     let developer_poller = self.developer_page.clone();
+    let customize_poller = self.customize_page.clone();
     let nav_poller = self.nav.clone();
     let fg_poller = fg;
     glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
@@ -724,6 +741,7 @@ impl Widget for SettingsRoot {
           &printers_poller,
           &app_settings_poller,
           &developer_poller,
+          &customize_poller,
         ));
         title_poller.set_markup(&title_markup(want, fg_poller));
       }

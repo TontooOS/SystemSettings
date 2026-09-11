@@ -5,7 +5,8 @@
 //! `displays`, `menu_bar`, `tinti_ai`, `spotlight`, `wallpaper`,
 //! `notifications`, `sound`, `focus`, `screen_time`, `lock_screen`,
 //! `privacy`, `touch_id`, `users`, `internet_accounts`, `octo_cloud`,
-//! `keyboard`, `mouse`, `printers`, `app_settings`, `developer`);
+//! `keyboard`, `mouse`, `printers`, `app_settings`, `developer`,
+//! `customize`);
 //! `root` assembles the sidebar and swaps the detail page on selection.
 //! Shared helpers (palette, labels, CoreIcon rendering) live here.
 
@@ -14,6 +15,7 @@ pub mod appearance;
 pub mod app_settings;
 pub mod battery;
 pub mod bluetooth;
+pub mod customize;
 pub mod desktop_dock;
 pub mod developer;
 pub mod displays;

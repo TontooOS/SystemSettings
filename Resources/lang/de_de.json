@@ -30,6 +30,7 @@
   "sidebar.printers": "Drucker",
   "sidebar.app_settings": "App-Einstellungen",
   "sidebar.developer": "Entwickler",
+  "sidebar.customize": "Anpassen",
   "bluetooth.title": "Bluetooth",
   "bluetooth.header.subtitle": "Schalte Bluetooth ein, um Tastaturen, Kopfhörer und andere Geräte zu verbinden.",
   "bluetooth.devices.header": "Geräte",
@@ -179,5 +180,14 @@
   "developer.header.subtitle": "Werkzeuge für Entwickler.",
   "developer.mode": "Entwicklermodus",
   "developer.api_logs": "API-Protokolle",
-  "developer.api_logs.detail": "Minimal"
+  "developer.api_logs.detail": "Minimal",
+  "customize.title": "Anpassen",
+  "customize.header.subtitle": "Hintergrundbild, Akzentfarbe und Theme anpassen.",
+  "customize.wallpaper": "Hintergrundbild",
+  "customize.accent": "Akzentfarbe",
+  "customize.dark_mode": "Dark Mode",
+  "customize.accent.orange": "Orange",
+  "customize.accent.blue": "Blau",
+  "customize.accent.green": "Grün",
+  "customize.accent.purple": "Lila"
 }
