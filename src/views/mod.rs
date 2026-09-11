@@ -64,7 +64,9 @@ pub(crate) fn palette(dark: bool) -> Palette {
     Palette {
       fg: "#1E1E1E",
       secondary: "#6E6E73",
-      card: "#F5F5F7",
+      // Pure white: the light content background (#ececec) would swallow
+      // anything close to it, leaving cards invisible.
+      card: "#FFFFFF",
     }
   }
 }

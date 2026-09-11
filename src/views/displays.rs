@@ -1,28 +1,23 @@
 //! Displays settings page for SystemSettings.
 //!
-//! Output info plus live controls: brightness slider (dims the whole
-//! desktop in the compositor), night light toggle (warm overlay) and a
-//! refresh rate dropdown built from the monitor's reported modes (capped
-//! at the monitor max). All values come from the settings daemon
-//! (`display_get`) with defaults when it is unreachable; every change
-//! applies live via `display_set` and persists there. All text uses
-//! SF Pro Display and both `en_us` and `de_de` strings.
+//! One card with output info plus live controls: brightness slider
+//! (TontooUI, dims the whole desktop in the compositor), night light
+//! toggle (warm overlay) and a refresh rate dropdown built from the
+//! monitor's reported modes (capped at the monitor max). No title header
+//! (like the Wallpaper page, the toolbar shows the title). All values
+//! come from the settings daemon (`display_get`) with defaults when it
+//! is unreachable; every change applies live via `display_set` and
+//! persists there. All text uses SF Pro Display and both `en_us` and
+//! `de_de` strings.
 
-use super::{WIFI_BLUE, is_dark, markup_label, palette, sidebar_style_icon_path};
+use super::{is_dark, markup_label, palette};
 use crate::daemon;
 use crate::lang;
-use crate::TontooUI::Toggle;
+use crate::TontooUI::{Slider, Toggle};
 use crate::UIKit::apply_css;
 use crate::UIKit::prelude::*;
 use gtk::prelude::*;
 use std::rc::Rc;
-
-const HEADER_ICON_PX: i32 = 32;
-
-/// Blue `sun.max.fill` icon, same artwork as the sidebar row icon.
-fn displays_icon_path() -> Option<String> {
-  sidebar_style_icon_path("sun.max.fill", "displays", WIFI_BLUE)
-}
 
 /// Standard refresh rates offered up to the monitor max.
 const STANDARD_RATES: &[u32] = &[10, 30, 60, 120, 240];
@@ -69,31 +64,18 @@ pub(crate) fn output_value(output_name: &str, mode_label: &str) -> String {
   }
 }
 
-/// Info row: label on the left, dynamic value on the right.
-fn info_value(label_key: &str, value: &str, pal_fg: &str, pal_secondary: &str, last: bool) -> gtk::Box {
-  let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-  row.set_hexpand(true);
-  row.set_margin_top(5);
-  row.set_margin_bottom(5);
-
-  let name = markup_label(&lang::t(label_key), 13, "normal", pal_fg);
-  name.set_halign(gtk::Align::Start);
-  name.set_xalign(0.0);
-  name.set_hexpand(true);
-  name.set_ellipsize(gtk::pango::EllipsizeMode::End);
-  row.append(&name);
-
-  let detail = markup_label(value, 13, "normal", pal_secondary);
-  detail.set_halign(gtk::Align::End);
-  row.append(&detail);
-
-  if !last {
-    crate::UIKit::apply_css(
-      &row,
-      "box { border-bottom: 1px solid rgba(128,128,128,0.25); }",
-    );
-  }
-  row
+/// Rounded card container in the page palette color.
+fn card(pal_card: &str) -> gtk::Box {
+  let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
+  card.set_hexpand(true);
+  crate::UIKit::apply_css(
+    &card,
+    &format!(
+      "box {{ background-color: {}; border-radius: 12px; padding: 16px; }}",
+      pal_card
+    ),
+  );
+  card
 }
 
 /// The Displays detail page (directly on the screen).
@@ -102,7 +84,7 @@ pub(crate) fn build_page() -> gtk::Widget {
   let fg: &'static str = pal.fg;
   let secondary: &'static str = pal.secondary;
 
-  let detail = gtk::Box::new(gtk::Orientation::Vertical, 0);
+  let detail = gtk::Box::new(gtk::Orientation::Vertical, 16);
   detail.set_hexpand(true);
   detail.set_vexpand(true);
   detail.set_margin_top(20);
@@ -110,50 +92,25 @@ pub(crate) fn build_page() -> gtk::Widget {
   detail.set_margin_start(24);
   detail.set_margin_end(24);
 
-  // Header row: blue display icon, title + subtitle.
-  let header = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-  header.set_hexpand(true);
-
-  if let Some(icon_path) = displays_icon_path() {
-    let icon = gtk::Image::from_file(&icon_path);
-    icon.set_pixel_size(HEADER_ICON_PX);
-    icon.set_valign(gtk::Align::Start);
-    header.append(&icon);
-  }
-
-  let titles = gtk::Box::new(gtk::Orientation::Vertical, 2);
-  titles.set_hexpand(true);
-  titles.set_halign(gtk::Align::Fill);
-  let title = markup_label(&lang::t("displays.title"), 17, "bold", fg);
-  title.set_halign(gtk::Align::Start);
-  title.set_xalign(0.0);
-  titles.append(&title);
-  let subtitle = markup_label(
-    &lang::t("displays.header.subtitle"),
-    13,
-    "normal",
-    secondary,
-  );
-  subtitle.set_halign(gtk::Align::Start);
-  subtitle.set_xalign(0.0);
-  subtitle.set_wrap(true);
-  subtitle.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-  subtitle.set_max_width_chars(48);
-  titles.append(&subtitle);
-  header.append(&titles);
-  detail.append(&header);
-
-  let gap = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  gap.set_size_request(-1, 16);
-  detail.append(&gap);
-
   let state = daemon::display_get().unwrap_or_default();
   let primary = state.outputs.first().cloned();
 
+  // Single card: output info, brightness, night light, refresh rate.
+  let card = card(pal.card);
   let rows = gtk::Box::new(gtk::Orientation::Vertical, 0);
   rows.set_hexpand(true);
 
   // Output info: name plus current mode.
+  let info_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+  info_row.set_hexpand(true);
+  info_row.set_margin_top(5);
+  info_row.set_margin_bottom(5);
+  let info_name = markup_label(&lang::t("displays.output"), 13, "normal", fg);
+  info_name.set_halign(gtk::Align::Start);
+  info_name.set_xalign(0.0);
+  info_name.set_hexpand(true);
+  info_name.set_ellipsize(gtk::pango::EllipsizeMode::End);
+  info_row.append(&info_name);
   let (output_name, mode_label) = match &primary {
     Some(output) => (
       output.name.clone(),
@@ -161,15 +118,16 @@ pub(crate) fn build_page() -> gtk::Widget {
     ),
     None => (String::new(), String::new()),
   };
-  rows.append(&info_value(
-    "displays.output",
-    &output_value(&output_name, &mode_label),
-    fg,
-    secondary,
-    false,
-  ));
+  let info_detail = markup_label(&output_value(&output_name, &mode_label), 13, "normal", secondary);
+  info_detail.set_halign(gtk::Align::End);
+  info_row.append(&info_detail);
+  crate::UIKit::apply_css(
+    &info_row,
+    "box { border-bottom: 1px solid rgba(128,128,128,0.25); }",
+  );
+  rows.append(&info_row);
 
-  // Brightness slider: dims the whole desktop live.
+  // Brightness slider: dims the whole desktop live (TontooUI).
   let brightness_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
   brightness_row.set_hexpand(true);
   brightness_row.set_margin_top(5);
@@ -180,28 +138,20 @@ pub(crate) fn build_page() -> gtk::Widget {
   brightness_name.set_hexpand(true);
   brightness_name.set_ellipsize(gtk::pango::EllipsizeMode::End);
   brightness_row.append(&brightness_name);
-  let slider = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 1.0);
-  slider.set_value(state.brightness as f64);
-  slider.set_digits(0);
-  slider.set_size_request(200, -1);
-  slider.set_halign(gtk::Align::End);
-  slider.set_valign(gtk::Align::Center);
-  let brightness_known = Rc::new(std::cell::Cell::new(state.brightness as f64));
-  let brightness_known_cb = brightness_known.clone();
-  slider.connect_value_changed(move |slider| {
-    let value = slider.value();
-    match daemon::display_set(None, None, None, None, Some(value), None) {
-      Ok(applied) => {
-        println!("Displays brightness: {}", applied.brightness);
-        brightness_known_cb.set(applied.brightness as f64);
+  let slider = Slider::new(0.0, 100.0)
+    .value(state.brightness as f32)
+    .step(1.0)
+    .width(200.0)
+    .on_change(move |value| {
+      match daemon::display_set(None, None, None, None, Some(value as f64), None) {
+        Ok(applied) => println!("Displays brightness: {}", applied.brightness),
+        Err(e) => println!("Displays brightness failed: {}", e),
       }
-      Err(e) => {
-        println!("Displays brightness failed: {}", e);
-        slider.set_value(brightness_known_cb.get());
-      }
-    }
-  });
-  brightness_row.append(&slider);
+    });
+  let slider_gtk = slider.to_gtk();
+  slider_gtk.set_halign(gtk::Align::End);
+  slider_gtk.set_valign(gtk::Align::Center);
+  brightness_row.append(&slider_gtk);
   crate::UIKit::apply_css(
     &brightness_row,
     "box { border-bottom: 1px solid rgba(128,128,128,0.25); }",
@@ -291,7 +241,8 @@ pub(crate) fn build_page() -> gtk::Widget {
   refresh_row.append(&refresh_drop);
   rows.append(&refresh_row);
 
-  detail.append(&rows);
+  card.append(&rows);
+  detail.append(&card);
 
   detail.upcast()
 }

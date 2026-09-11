@@ -32,6 +32,9 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-11: Displays without header (like Wallpaper), controls in a
+  card (visible in Light Mode via white cards), brightness uses the
+  TontooUI slider.
 - 2026-09-11: Displays page rebuilt (output info, live brightness
   slider, night light toggle, refresh rate dropdown from the monitor's
   reported modes up to its max; daemon-wired via `display_get`/

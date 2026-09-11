@@ -316,11 +316,11 @@ with an example name plus Show Dock (on) and Magnification (off) toggles.
 
 ## Displays page
 
-`src/views/displays.rs`: output info row plus live controls — a
-brightness slider (dims the whole desktop in the compositor), a night
-light toggle (warm overlay) and a refresh rate dropdown built from the
-monitor's reported modes (standard rates up to the monitor max plus
-every reported rate, capped at 1000 Hz). All values come from
+`src/views/displays.rs`: one card with output info plus live controls
+— brightness slider (TontooUI `Slider`, dims the whole desktop in the
+compositor), night light toggle (warm overlay) and a refresh rate
+dropdown built from the monitor's reported modes. No title header (like
+the Wallpaper page, the toolbar shows the title). All values come from
 `display_get` with defaults when the daemon is unreachable; every
 change applies live via `display_set` and persists there.
 
