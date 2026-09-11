@@ -6,10 +6,12 @@
 //! (`com.tontoo.systemsettings`). No UI code uses this module yet;
 //! frontend wiring is a later step.
 //!
-//! The Wallpaper page is daemon-wired: `wallpaper_get` (public read)
-//! loads the full wallpaper state, `wallpaper_set_current`,
+//! The Wallpaper and Displays pages are daemon-wired: `wallpaper_get`
+//! (public read) loads the full wallpaper state, `wallpaper_set_current`,
 //! `wallpaper_set_fill` and `wallpaper_add` (private writes) persist the
-//! selection and uploads.
+//! selection and uploads; `display_get` (public read) loads outputs with
+//! modes plus brightness and night light, `display_set` (private write)
+//! applies settings live and persists them.
 //!
 //! The protocol is newline-delimited JSON over a unix socket:
 //! `{"id": 1, "op": ..., "params": {...}}` with replies shaped
@@ -260,6 +262,70 @@ pub fn wallpaper_apply(kind: &str, id: &str, variant: &str) -> Result<WallpaperE
     serde_json::from_value(result).map_err(|e| format!("wallpaper apply invalid: {}", e))
 }
 
+/// One output mode: resolution plus refresh rate in Hz.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct DisplayMode {
+    #[serde(default)]
+    pub width: i32,
+    #[serde(default)]
+    pub height: i32,
+    #[serde(default)]
+    pub refresh: u32,
+}
+
+/// One output with its modes and live current mode.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct DisplayOutput {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub modes: Vec<DisplayMode>,
+    pub current: Option<DisplayMode>,
+}
+
+/// Effective display state behind `display_get`.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(default)]
+pub struct DisplayState {
+    pub outputs: Vec<DisplayOutput>,
+    pub brightness: u32,
+    pub night_light: bool,
+}
+
+impl Default for DisplayState {
+    fn default() -> Self {
+        Self {
+            outputs: Vec::new(),
+            brightness: 100,
+            night_light: false,
+        }
+    }
+}
+
+/// Read the effective display state (`display_get`, public).
+pub fn display_get() -> Result<DisplayState, String> {
+    let result = call("display_get", serde_json::json!({}))?;
+    serde_json::from_value(result).map_err(|e| format!("display get invalid: {}", e))
+}
+
+/// Apply partial display settings live (`display_set`, private).
+/// `None` leaves the field untouched. Returns the effective state.
+pub fn display_set(
+    output: Option<&str>,
+    width: Option<i32>,
+    height: Option<i32>,
+    refresh: Option<u32>,
+    brightness: Option<f64>,
+    night_light: Option<bool>,
+) -> Result<DisplayState, String> {
+    let result = call(
+        "display_set",
+        serde_json::json!({"output": output, "width": width, "height": height,
+            "refresh": refresh, "brightness": brightness, "night_light": night_light}),
+    )?;
+    serde_json::from_value(result).map_err(|e| format!("display set invalid: {}", e))
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -432,6 +498,53 @@ mod tests {
         );
         let err = wallpaper_add("/tmp/missing.png", None).unwrap_err();
         assert!(err.contains("file not found"));
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn display_get_roundtrip_with_defaults() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("display-get");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result": {
+                "outputs": [{"name": "HDMI-1",
+                    "modes": [{"width": 1920, "height": 1080, "refresh": 60},
+                              {"width": 1920, "height": 1080, "refresh": 120}],
+                    "current": {"width": 1920, "height": 1080, "refresh": 60}}],
+                "brightness": 80, "night_light": false}}),
+        );
+        let state = display_get().unwrap();
+        assert_eq!(state.outputs.len(), 1);
+        assert_eq!(state.outputs[0].modes.len(), 2);
+        assert_eq!(state.brightness, 80);
+        assert!(!state.night_light);
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn display_set_roundtrip_and_error() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("display-set");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result":
+                {"outputs": [], "brightness": 70, "night_light": true}}),
+        );
+        let state = display_set(None, None, None, None, Some(70.0), Some(true)).unwrap();
+        assert_eq!(state.brightness, 70);
+        assert!(state.night_light);
+
+        let path = unique_socket("display-set-error");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": false, "error": "display set failed: invalid refresh rate: 5000"}),
+        );
+        let err = display_set(None, None, None, Some(5000), None, None).unwrap_err();
+        assert!(err.contains("invalid refresh rate"));
         std::env::remove_var("SETTINGS_SOCKET");
     }
 

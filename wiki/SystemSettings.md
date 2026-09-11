@@ -316,18 +316,24 @@ with an example name plus Show Dock (on) and Magnification (off) toggles.
 
 ## Displays page
 
-Example content (`src/views/displays.rs`): header with the blue
-`sun.max.fill` icon, title and subtitle, then a Resolution row with an
-example value and a Brightness toggle.
+`src/views/displays.rs`: output info row plus live controls — a
+brightness slider (dims the whole desktop in the compositor), a night
+light toggle (warm overlay) and a refresh rate dropdown built from the
+monitor's reported modes (standard rates up to the monitor max plus
+every reported rate, capped at 1000 Hz). All values come from
+`display_get` with defaults when the daemon is unreachable; every
+change applies live via `display_set` and persists there.
 
 | Key | en_us | de_de |
 |---|---|---|
 | `sidebar.displays` | `Displays` | `Monitore` |
 | `displays.title` | `Displays` | `Monitore` |
-| `displays.header.subtitle` | `Adjust the display resolution and brightness.` | `Auflösung und Helligkeit anpassen.` |
-| `displays.resolution` | `Resolution` | `Auflösung` |
-| `displays.resolution.detail` | `1920 × 1080` | `1920 × 1080` |
+| `displays.header.subtitle` | `Adjust brightness, refresh rate and night light.` | `Helligkeit, Bildwiederholrate und Night Light anpassen.` |
+| `displays.output` | `Display` | `Monitor` |
+| `displays.no_output` | `No display found` | `Kein Monitor gefunden` |
 | `displays.brightness` | `Brightness` | `Helligkeit` |
+| `displays.night_light` | `Night Light` | `Night Light` |
+| `displays.refresh_rate` | `Refresh Rate` | `Bildwiederholrate` |
 
 ## Menu Bar page
 
@@ -662,6 +668,8 @@ pub fn wallpaper_set_current(kind: &str, id: &str) -> Result<Option<WallpaperEnt
 pub fn wallpaper_set_fill(fill: &str) -> Result<String, String>
 pub fn wallpaper_add(path: &str, name: Option<&str>) -> Result<WallpaperEntry, String>
 pub fn wallpaper_apply(kind: &str, id: &str, variant: &str) -> Result<WallpaperEntry, String>
+pub fn display_get() -> Result<DisplayState, String>
+pub fn display_set(output: Option<&str>, width: Option<i32>, height: Option<i32>, refresh: Option<u32>, brightness: Option<f64>, night_light: Option<bool>) -> Result<DisplayState, String>
 ```
 
 Rules:

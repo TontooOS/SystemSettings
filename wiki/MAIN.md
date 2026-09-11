@@ -32,6 +32,10 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-11: Displays page rebuilt (output info, live brightness
+  slider, night light toggle, refresh rate dropdown from the monitor's
+  reported modes up to its max; daemon-wired via `display_get`/
+  `display_set` with defaults).
 - 2026-09-11: Fill mode applies live (daemon forwards the mode to the
   compositor on dropdown change; no app changes needed).
 - 2026-09-11: Current wallpaper thumbnail enlarged (160x100, matches
