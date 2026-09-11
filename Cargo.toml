@@ -19,3 +19,5 @@ gtk = { package = "gtk4", version = "0.9" }
 glib = "0.20"
 # Fast scaled-down thumbnail loads (full 4K/6K wallpapers stay on disk).
 gdk-pixbuf = "0.20"
+# Diagonal light/dark split previews for the wallpaper popup.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }

@@ -32,6 +32,10 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-11: Wallpaper apply popup (click a pack: preview with
+  Light/Auto/Dark modes, diagonal split composite for Auto, Cancel/Set;
+  Set applies to the desktop via `wallpaper_apply` and refreshes the
+  current card).
 - 2026-09-11: Wallpaper page rebuilt (current wallpaper card with
   rounded preview, name and fill mode dropdown; premade grid in macOS
   release order, cached thumbnails). Display only except fill mode;

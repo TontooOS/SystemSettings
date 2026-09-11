@@ -177,6 +177,7 @@ pub fn forget(ssid: &str) -> Result<bool, String> {
 }
 
 /// One listed wallpaper: a premade pack or a user custom file.
+/// `path_dark` mirrors `path` when no dark variant exists.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct WallpaperEntry {
     #[serde(default)]
@@ -187,6 +188,8 @@ pub struct WallpaperEntry {
     pub name: String,
     #[serde(default)]
     pub path: String,
+    #[serde(default)]
+    pub path_dark: String,
 }
 
 /// Full wallpaper state behind `wallpaper_get`.
@@ -245,6 +248,16 @@ pub fn wallpaper_add(path: &str, name: Option<&str>) -> Result<WallpaperEntry, S
         serde_json::json!({"path": path, "name": name}),
     )?;
     serde_json::from_value(result).map_err(|e| format!("wallpaper add invalid: {}", e))
+}
+
+/// Apply a wallpaper to the desktop (`wallpaper_apply`, private).
+/// `variant` is `light`, `dark` or `auto`. Returns the applied entry.
+pub fn wallpaper_apply(kind: &str, id: &str, variant: &str) -> Result<WallpaperEntry, String> {
+    let result = call(
+        "wallpaper_apply",
+        serde_json::json!({"kind": kind, "id": id, "variant": variant}),
+    )?;
+    serde_json::from_value(result).map_err(|e| format!("wallpaper apply invalid: {}", e))
 }
 
 #[cfg(all(test, unix))]
@@ -419,6 +432,23 @@ mod tests {
         );
         let err = wallpaper_add("/tmp/missing.png", None).unwrap_err();
         assert!(err.contains("file not found"));
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn wallpaper_apply_roundtrip() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("wallpaper-apply");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result":
+                {"kind": "premade", "id": "SONOMA", "name": "Sonoma",
+                 "path": "/wp/sonoma.png", "path_dark": "/wp/sonoma-dark.png"}}),
+        );
+        let applied = wallpaper_apply("premade", "SONOMA", "auto").unwrap();
+        assert_eq!(applied.id, "SONOMA");
+        assert_eq!(applied.path_dark, "/wp/sonoma-dark.png");
         std::env::remove_var("SETTINGS_SOCKET");
     }
 }

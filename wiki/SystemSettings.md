@@ -364,13 +364,16 @@ then Tinti Suggestions (on) and Recent Searches (off) toggles.
 
 `src/views/wallpaper.rs`: current wallpaper card (rounded preview
 thumbnail, name, fill mode dropdown) plus an available wallpapers card
-(premade grid in macOS release order). Rounded thumbnails come from
-small cached files (`gdk-pixbuf` scale-on-load into the temp dir), the
-4K/6K originals are never loaded into the UI. Display only except the
-fill mode dropdown (persisted via `wallpaper_set_fill`); custom uploads
-come later; nothing here applies the wallpaper to the desktop. All data
-comes from `wallpaper_get` with empty fallbacks when the daemon is
-unreachable.
+(premade grid in macOS release order, clickable). Rounded thumbnails
+come from small cached files (`gdk-pixbuf` scale-on-load into the temp
+dir), the 4K/6K originals are never loaded into the UI. Clicking a pack
+opens the apply popup: big preview, Light/Auto/Dark mode buttons (Auto
+shows a diagonal light/dark split composited with the `image` crate),
+Cancel and Set at the bottom. Set applies to the desktop via
+`wallpaper_apply` (daemon resolves the variant and forwards it to the
+compositor crossfade) and refreshes the current card; the fill mode
+dropdown persists via `wallpaper_set_fill`. All data comes from
+`wallpaper_get` with empty fallbacks when the daemon is unreachable.
 
 | Key | en_us | de_de |
 |---|---|---|
@@ -387,6 +390,11 @@ unreachable.
 | `wallpaper.fill.tile` | `Tile` | `Kacheln` |
 | `wallpaper.available` | `Available Wallpapers` | `Verfügbare Hintergrundbilder` |
 | `wallpaper.premade` | `Premade` | `Vorinstalliert` |
+| `wallpaper.set` | `Set` | `Setzen` |
+| `wallpaper.cancel` | `Cancel` | `Abbrechen` |
+| `wallpaper.mode.light` | `Light` | `Hell` |
+| `wallpaper.mode.auto` | `Auto` | `Auto` |
+| `wallpaper.mode.dark` | `Dark` | `Dunkel` |
 
 ## Notifications page
 
@@ -633,6 +641,7 @@ pub fn wallpaper_get() -> Result<WallpaperState, String>
 pub fn wallpaper_set_current(kind: &str, id: &str) -> Result<Option<WallpaperEntry>, String>
 pub fn wallpaper_set_fill(fill: &str) -> Result<String, String>
 pub fn wallpaper_add(path: &str, name: Option<&str>) -> Result<WallpaperEntry, String>
+pub fn wallpaper_apply(kind: &str, id: &str, variant: &str) -> Result<WallpaperEntry, String>
 ```
 
 Rules:

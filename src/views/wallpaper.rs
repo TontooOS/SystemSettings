@@ -8,10 +8,11 @@
 //! (`wallpaper_get`) with empty fallbacks when it is unreachable. All
 //! text uses SF Pro Display and both `en_us` and `de_de` strings.
 
-use super::{markup_label, palette};
+use super::{markup_label, palette, SF_PRO};
 use crate::daemon;
 use crate::lang;
 use gtk::prelude::*;
+use std::rc::Rc;
 
 const CURRENT_THUMB_W: i32 = 96;
 const CURRENT_THUMB_H: i32 = 64;
@@ -23,6 +24,13 @@ const THUMB_CORNER_PX: i32 = 12;
 
 /// Fill mode ids in dropdown order (daemon `wallpaper` values).
 pub(crate) const FILL_ORDER: &[&str] = &["fill", "fit", "stretch", "center", "tile"];
+
+/// Popup preview variants in button order (Auto in the middle).
+pub(crate) const PREVIEW_ORDER: &[&str] = &["light", "auto", "dark"];
+
+/// Popup preview size.
+const PREVIEW_W: u32 = 480;
+const PREVIEW_H: u32 = 270;
 
 /// Lang key for a fill mode label (`wallpaper.fill.<id>`).
 pub(crate) fn fill_key(fill: &str) -> String {
@@ -48,6 +56,83 @@ fn card(pal_card: &str) -> gtk::Box {  let card = gtk::Box::new(gtk::Orientation
     ),
   );
   card
+}
+
+/// Refresh a label created by `markup_label` (same font).
+fn set_markup_label(label: &gtk::Label, text: &str, size: u32, weight: &str, color: &str) {
+  label.set_markup(&format!(
+    "<span font_desc=\"{} {} {}\" foreground=\"{}\">{}</span>",
+    SF_PRO,
+    weight,
+    size,
+    color,
+    glib::markup_escape_text(text),
+  ));
+}
+
+/// Lang key for a popup preview variant (`wallpaper.mode.<id>`).
+pub(crate) fn mode_key(variant: &str) -> String {
+  format!("wallpaper.mode.{}", variant)
+}
+
+/// Diagonal light/dark split preview: left of the diagonal line shows the
+/// light image, right shows the dark image, joined by a white divider
+/// (not a straight middle cut). Cached next to the thumbnails.
+pub(crate) fn split_preview(
+  light: &std::path::Path,
+  dark: &std::path::Path,
+  width: u32,
+  height: u32,
+) -> Option<std::path::PathBuf> {
+  let light_img = image::open(light).ok()?.resize_exact(
+    width,
+    height,
+    image::imageops::FilterType::Triangle,
+  );
+  let dark_img = image::open(dark).ok()?.resize_exact(
+    width,
+    height,
+    image::imageops::FilterType::Triangle,
+  );
+  let light_rgb = light_img.to_rgb8();
+  let dark_rgb = dark_img.to_rgb8();
+  let mut out = image::RgbImage::new(width, height);
+  for y in 0..height {
+    // Divider drifts right going down: left stays light, right is dark.
+    let line = width as f32 * (0.38 + 0.24 * (y as f32 / height as f32));
+    for x in 0..width {
+      let dx = x as f32 - line;
+      let pixel = if dx.abs() <= 2.0 {
+        image::Rgb([255, 255, 255])
+      } else if dx < 0.0 {
+        *light_rgb.get_pixel(x, y)
+      } else {
+        *dark_rgb.get_pixel(x, y)
+      };
+      out.put_pixel(x, y, pixel);
+    }
+  }
+  let cache_dir = thumb_cache_dir();
+  std::fs::create_dir_all(&cache_dir).ok()?;
+  let dest = cache_dir.join(format!(
+    "split-{:016x}.png",
+    {
+      use std::collections::hash_map::DefaultHasher;
+      use std::hash::{Hash, Hasher};
+      let mut hash = DefaultHasher::new();
+      light.to_string_lossy().hash(&mut hash);
+      dark.to_string_lossy().hash(&mut hash);
+      width.hash(&mut hash);
+      height.hash(&mut hash);
+      std::fs::metadata(light).ok()?.len().hash(&mut hash);
+      std::fs::metadata(dark).ok()?.len().hash(&mut hash);
+      hash.finish()
+    }
+  ));
+  if !dest.is_file() {
+    out.save_with_format(&dest, image::ImageFormat::Png).ok()?;
+  }
+  Some(dest)
 }
 
 /// Small secondary section label.
@@ -149,15 +234,165 @@ fn thumb_cell(name: &str, path: &str, width: i32, height: i32, pal_fg: &str) -> 
   cell
 }
 
-/// Fill the premade grid from a wallpaper state.
-fn fill_lists(premade_grid: &gtk::FlowBox, state: &daemon::WallpaperState, pal_fg: &str) {
+/// Fill the premade grid from a wallpaper state. Cells open the apply
+/// popup on click.
+fn fill_lists(
+  premade_grid: &gtk::FlowBox,
+  state: &daemon::WallpaperState,
+  pal_fg: &str,
+  on_applied: &Rc<dyn Fn(daemon::WallpaperEntry)>,
+) {
   while let Some(child) = premade_grid.first_child() {
     premade_grid.remove(&child);
   }
   for entry in &state.premade {
     let cell = thumb_cell(&entry.name, &entry.path, PREMADE_THUMB_W, PREMADE_THUMB_H, pal_fg);
+    if let Some(cursor) = gtk::gdk::Cursor::from_name("pointer", None) {
+      cell.set_cursor(Some(&cursor));
+    }
+    let popup_entry = entry.clone();
+    let popup_applied = on_applied.clone();
+    let gesture = gtk::GestureClick::new();
+    gesture.connect_released(move |_, _, _, _| {
+      open_popup(&popup_entry, popup_applied.clone());
+    });
+    cell.add_controller(gesture);
     premade_grid.insert(&cell, -1);
   }
+}
+
+/// Preview file for a popup variant: light and dark resolve their files
+/// (fallback to the default path), auto composites the diagonal split.
+fn preview_file(entry: &daemon::WallpaperEntry, variant: &str) -> Option<std::path::PathBuf> {
+  let pick = |path: &str| {
+    if path.is_empty() {
+      None
+    } else {
+      Some(std::path::PathBuf::from(path))
+    }
+  };
+  match variant {
+    "dark" => {
+      let dark = if entry.path_dark.is_empty() {
+        entry.path.clone()
+      } else {
+        entry.path_dark.clone()
+      };
+      pick(&dark).filter(|p| p.is_file())
+    }
+    "auto" => {
+      let light = std::path::PathBuf::from(&entry.path);
+      let dark = if entry.path_dark.is_empty() {
+        light.clone()
+      } else {
+        std::path::PathBuf::from(&entry.path_dark)
+      };
+      if light.is_file() && dark.is_file() {
+        split_preview(&light, &dark, PREVIEW_W, PREVIEW_H)
+      } else {
+        pick(&entry.path).filter(|p| p.is_file())
+      }
+    }
+    _ => pick(&entry.path).filter(|p| p.is_file()),
+  }
+}
+
+/// Apply popup for one wallpaper: big preview, Light/Auto/Dark mode
+/// buttons (Auto in the middle), Cancel and Set at the bottom. Set
+/// applies to the desktop via the daemon and reports back through
+/// `on_applied`; errors only log and keep the popup open.
+fn open_popup(entry: &daemon::WallpaperEntry, on_applied: Rc<dyn Fn(daemon::WallpaperEntry)>) {
+  let dialog = gtk::Window::new();
+  dialog.set_title(Some(&entry.name));
+  dialog.set_modal(true);
+  dialog.set_default_size(520, -1);
+
+  let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
+  content.set_margin_top(16);
+  content.set_margin_bottom(16);
+  content.set_margin_start(16);
+  content.set_margin_end(16);
+
+  let preview = gtk::Picture::new();
+  preview.set_content_fit(gtk::ContentFit::Cover);
+  preview.set_size_request(PREVIEW_W as i32, PREVIEW_H as i32);
+  preview.add_css_class("wallpaper-preview");
+  crate::UIKit::apply_css(
+    &preview,
+    &format!(
+      "picture.wallpaper-preview {{ border-radius: {}px; }}",
+      THUMB_CORNER_PX
+    ),
+  );
+  content.append(&preview);
+
+  let modes = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+  modes.set_halign(gtk::Align::Center);
+  let variant = Rc::new(std::cell::Cell::new(1usize));
+  let mut toggles: Vec<gtk::ToggleButton> = Vec::new();
+  for (index, id) in PREVIEW_ORDER.iter().enumerate() {
+    let toggle = gtk::ToggleButton::with_label(&lang::t(&mode_key(id)));
+    toggle.set_active(index == 1);
+    toggles.push(toggle);
+  }
+  let preview_update = preview.clone();
+  let entry_update = entry.clone();
+  for (index, toggle) in toggles.iter().enumerate() {
+    let siblings = toggles.clone();
+    let variant_cb = variant.clone();
+    let preview_cb = preview_update.clone();
+    let entry_cb = entry_update.clone();
+    toggle.connect_toggled(move |t| {
+      if !t.is_active() {
+        return;
+      }
+      for (other_index, other) in siblings.iter().enumerate() {
+        if other_index != index {
+          other.set_active(false);
+        }
+      }
+      variant_cb.set(index);
+      let id = PREVIEW_ORDER.get(index).copied().unwrap_or("auto");
+      if let Some(file) = preview_file(&entry_cb, id) {
+        preview_cb.set_filename(file.to_str());
+      }
+    });
+    modes.append(toggle);
+  }
+  content.append(&modes);
+  if let Some(file) = preview_file(entry, "auto") {
+    preview.set_filename(file.to_str());
+  }
+
+  dialog.set_child(Some(&content));
+  let popup_entry = entry.clone();
+  let button_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+  button_row.set_halign(gtk::Align::End);
+  let cancel = gtk::Button::with_label(&lang::t("wallpaper.cancel"));
+  let set = gtk::Button::with_label(&lang::t("wallpaper.set"));
+  set.add_css_class("suggested-action");
+  button_row.append(&cancel);
+  button_row.append(&set);
+  content.append(&button_row);
+
+  let dialog_close = dialog.clone();
+  cancel.connect_clicked(move |_| {
+    dialog_close.destroy();
+  });
+  let dialog_set = dialog.clone();
+  set.connect_clicked(move |_| {
+    let id = PREVIEW_ORDER.get(variant.get()).copied().unwrap_or("auto");
+    match daemon::wallpaper_apply(&popup_entry.kind, &popup_entry.id, id) {
+      Ok(applied) => {
+        println!("Wallpaper applied: {} ({})", applied.path, id);
+        on_applied(applied);
+        dialog_set.destroy();
+      }
+      Err(e) => println!("Wallpaper apply failed: {}", e),
+    }
+  });
+  dialog.set_child(Some(&content));
+  dialog.present();
 }
 
 /// The Wallpaper detail page (directly on the screen).
@@ -181,12 +416,14 @@ pub(crate) fn build_page() -> gtk::Widget {
   let current_card = card(card_color);
   let current_row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
   current_row.set_hexpand(true);
+  let current_thumb_slot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+  current_thumb_slot.set_valign(gtk::Align::Start);
   if let Some(entry) = state.current.as_ref() {
     if let Some(thumb) = thumb_picture(&entry.path, CURRENT_THUMB_W, CURRENT_THUMB_H) {
-      thumb.set_valign(gtk::Align::Start);
-      current_row.append(&thumb);
+      current_thumb_slot.append(&thumb);
     }
   }
+  current_row.append(&current_thumb_slot);
   let current_text = gtk::Box::new(gtk::Orientation::Vertical, 4);
   current_text.set_hexpand(true);
   current_text.append(&section_label("wallpaper.current", secondary));
@@ -253,7 +490,19 @@ pub(crate) fn build_page() -> gtk::Widget {
   premade_grid.set_column_spacing(12);
   premade_grid.set_hexpand(true);
   lists.append(&premade_grid);
-  fill_lists(&premade_grid, &state, fg);
+  // Refresh the current card after a popup apply.
+  let applied_thumb = current_thumb_slot.clone();
+  let applied_name = name.clone();
+  let on_applied: Rc<dyn Fn(daemon::WallpaperEntry)> = Rc::new(move |applied| {
+    while let Some(child) = applied_thumb.first_child() {
+      applied_thumb.remove(&child);
+    }
+    if let Some(thumb) = thumb_picture(&applied.path, CURRENT_THUMB_W, CURRENT_THUMB_H) {
+      applied_thumb.append(&thumb);
+    }
+    set_markup_label(&applied_name, &applied.name, 15, "bold", fg);
+  });
+  fill_lists(&premade_grid, &state, fg, &on_applied);
   available_card.append(&lists);
   detail.append(&available_card);
 
@@ -272,7 +521,6 @@ mod tests {
     assert_eq!(fill_index("melt"), 0);
     assert_eq!(fill_key("center"), "wallpaper.fill.center");
   }
-
   #[test]
   fn thumb_cache_key_tracks_file_and_misses_missing() {
     let dir = std::env::temp_dir().join("systemsettings-thumb-test");
@@ -285,5 +533,45 @@ mod tests {
     assert_eq!(first.extension().and_then(|e| e.to_str()), Some("png"));
     assert_eq!(thumb_cache_path(&dir, &source).unwrap(), first);
     let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  fn solid_png(dir: &std::path::Path, name: &str, pixel: [u8; 3]) -> std::path::PathBuf {
+    let mut img = image::RgbImage::new(16, 12);
+    for p in img.pixels_mut() {
+      *p = image::Rgb(pixel);
+    }
+    let path = dir.join(name);
+    img
+      .save_with_format(&path, image::ImageFormat::Png)
+      .unwrap();
+    path
+  }
+
+  #[test]
+  fn split_preview_joins_light_left_dark_right_with_divider() {
+    let dir = std::env::temp_dir().join("systemsettings-split-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let light = solid_png(&dir, "day.png", [200, 50, 50]);
+    let dark = solid_png(&dir, "night.png", [50, 50, 200]);
+    let split = split_preview(&light, &dark, 16, 12).unwrap();
+    assert!(split.is_file());
+    let img = image::open(&split).unwrap().to_rgb8();
+    assert_eq!(img.dimensions(), (16, 12));
+    // Top-left corner is light, bottom-right corner is dark.
+    assert_eq!(*img.get_pixel(0, 0), image::Rgb([200, 50, 50]));
+    assert_eq!(*img.get_pixel(15, 11), image::Rgb([50, 50, 200]));
+    // The diagonal divider leaves a white band somewhere mid-image.
+    let white = img.pixels().filter(|p| **p == image::Rgb([255, 255, 255])).count();
+    assert!(white > 0);
+    // Missing inputs yield no preview.
+    assert!(split_preview(&dir.join("missing.png"), &dark, 16, 12).is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn preview_modes_resolve() {
+    assert_eq!(mode_key("auto"), "wallpaper.mode.auto");
+    assert_eq!(PREVIEW_ORDER, &["light", "auto", "dark"]);
   }
 }
