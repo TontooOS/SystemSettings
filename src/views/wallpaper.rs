@@ -171,6 +171,57 @@ pub(crate) fn thumb_cache_path(
   Some(cache_dir.join(format!("{:016x}.png", hash.finish())))
 }
 
+/// Exact-size cached thumbnail (cover-cropped to `width` x `height`):
+/// dimensions come from the file header (no decode), then a fast
+/// scale-on-load plus a center crop. The texture matches the display
+/// size, so grid cells keep their width and rows flow responsively.
+/// Falls back to the aspect-kept thumbnail on any error.
+pub(crate) fn cached_thumb_exact(
+  source: &std::path::Path,
+  width: i32,
+  height: i32,
+) -> Option<std::path::PathBuf> {
+  use std::collections::hash_map::DefaultHasher;
+  use std::hash::{Hash, Hasher};
+
+  let meta = std::fs::metadata(source).ok()?;
+  if !meta.is_file() || width <= 0 || height <= 0 {
+    return None;
+  }
+  let cache_dir = thumb_cache_dir();
+  let mut hash = DefaultHasher::new();
+  source.to_string_lossy().hash(&mut hash);
+  meta.len().hash(&mut hash);
+  meta.modified().ok().hash(&mut hash);
+  (width as u32).hash(&mut hash);
+  (height as u32).hash(&mut hash);
+  let cached = cache_dir.join(format!("exact-{:016x}.png", hash.finish()));
+  if cached.is_file() {
+    return Some(cached);
+  }
+  if std::fs::create_dir_all(&cache_dir).is_err() {
+    return None;
+  }
+  let (_format, src_w, src_h) = gdk_pixbuf::Pixbuf::file_info(source.to_str()?)?;
+  if src_w <= 0 || src_h <= 0 {
+    return None;
+  }
+  // Scale so the image covers the target, then center-crop.
+  let scale = (width as f64 / src_w as f64).max(height as f64 / src_h as f64);
+  let load_w = (src_w as f64 * scale).ceil() as i32;
+  let load_h = (src_h as f64 * scale).ceil() as i32;
+  let pixbuf = gdk_pixbuf::Pixbuf::from_file_at_scale(source.to_str()?, load_w, load_h, true).ok()?;
+  let (buf_w, buf_h) = (pixbuf.width(), pixbuf.height());
+  if buf_w < width || buf_h < height {
+    return None;
+  }
+  let crop = gdk_pixbuf::Pixbuf::new_subpixbuf(&pixbuf, (buf_w - width) / 2, (buf_h - height) / 2, width, height);
+  if crop.savev(&cached, "png", &[]).is_err() {
+    return None;
+  }
+  Some(cached)
+}
+
 /// Scaled-down cached PNG for a source image (4K/6K files stay on disk).
 /// Falls back to the source path when caching fails.
 pub(crate) fn cached_thumb(source: &std::path::Path) -> Option<std::path::PathBuf> {
@@ -195,9 +246,10 @@ pub(crate) fn cached_thumb(source: &std::path::Path) -> Option<std::path::PathBu
   Some(cached)
 }
 
-/// Rounded thumbnail: cached small file in a cropped `Picture` with a
-/// border radius (full-res images are never loaded into the UI).
-/// Returns `None` when the source is missing.
+/// Rounded thumbnail: exact-size cached file in a cropped `Picture` with
+/// a border radius, so the texture matches the display size and grid
+/// cells keep their width. Falls back to the aspect-kept thumbnail, then
+/// the source. Returns `None` when the source is missing.
 fn thumb_picture(path: &str, width: i32, height: i32) -> Option<gtk::Picture> {
   if path.is_empty() {
     return None;
@@ -206,7 +258,9 @@ fn thumb_picture(path: &str, width: i32, height: i32) -> Option<gtk::Picture> {
   if !source.is_file() {
     return None;
   }
-  let file = cached_thumb(source).unwrap_or_else(|| source.to_path_buf());
+  let file = cached_thumb_exact(source, width, height)
+    .or_else(|| cached_thumb(source))
+    .unwrap_or_else(|| source.to_path_buf());
   picture_from_file(&file, width, height)
 }
 
@@ -700,6 +754,30 @@ mod tests {
     let _ = std::fs::remove_dir_all(&dir);
   }
 
+  #[test]
+  fn exact_thumbs_match_display_size() {
+    let dir = std::env::temp_dir().join("systemsettings-exact-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // Wide source (32x8) cover-cropped to a square.
+    let mut img = image::RgbImage::new(32, 8);
+    for p in img.pixels_mut() {
+      *p = image::Rgb([10, 200, 30]);
+    }
+    let source = dir.join("wide.png");
+    img
+      .save_with_format(&source, image::ImageFormat::Png)
+      .unwrap();
+    let thumb = cached_thumb_exact(&source, 8, 8).unwrap();
+    assert!(thumb.is_file());
+    let decoded = image::open(&thumb).unwrap().to_rgb8();
+    assert_eq!(decoded.dimensions(), (8, 8));
+    // Cached: same path, no regeneration.
+    assert_eq!(cached_thumb_exact(&source, 8, 8).unwrap(), thumb);
+    // Missing source yields nothing.
+    assert!(cached_thumb_exact(&dir.join("missing.png"), 8, 8).is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+  }
   fn solid_png(dir: &std::path::Path, name: &str, pixel: [u8; 3]) -> std::path::PathBuf {
     let mut img = image::RgbImage::new(16, 12);
     for p in img.pixels_mut() {

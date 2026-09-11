@@ -32,6 +32,9 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-11: Exact-size grid thumbnails (cover-crop from header
+  dimensions plus center crop, so cells keep their width and rows flow
+  with the window width instead of stacking one per row).
 - 2026-09-11: Custom wallpapers back (Browse upload with image
   filters, horizontal custom row, click switches straight to the
   wallpaper with no popup; daemon converts to PNG with unique names).
