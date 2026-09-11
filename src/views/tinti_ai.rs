@@ -1,7 +1,7 @@
-//! Siri AI settings page for SystemSettings (example content).
+//! Tinti AI settings page for SystemSettings (example content).
 //!
 //! Header with the bundled PNG icon plus example toggle rows (Listen
-//! for Siri, AI Suggestions). All text uses SF Pro Display and both
+//! for Tinti, AI Suggestions). All text uses SF Pro Display and both
 //! `en_us` and `de_de` strings.
 
 use super::{is_dark, markup_label, palette};
@@ -13,10 +13,10 @@ use gtk::prelude::*;
 
 const HEADER_ICON_PX: i32 = 32;
 
-/// Bundled Siri artwork (`Resources/siri.png`).
-pub(crate) fn siri_png() -> String {
+/// Bundled Tinti artwork (`Resources/tinti.png`).
+pub(crate) fn tinti_png() -> String {
   format!(
-    "{}/Resources/siri.png",
+    "{}/Resources/tinti.png",
     env!("CARGO_MANIFEST_DIR")
   )
 }
@@ -53,7 +53,7 @@ fn toggle_row(label_key: &str, on: bool, log_line: &'static str, pal_fg: &str, l
   row
 }
 
-/// The Siri AI detail page (example content, directly on the screen).
+/// The Tinti AI detail page (example content, directly on the screen).
 pub(crate) fn build_page() -> gtk::Widget {
   let pal = palette(is_dark());
 
@@ -69,7 +69,7 @@ pub(crate) fn build_page() -> gtk::Widget {
   let header = gtk::Box::new(gtk::Orientation::Horizontal, 10);
   header.set_hexpand(true);
 
-  let icon_path = siri_png();
+  let icon_path = tinti_png();
   if std::path::Path::new(&icon_path).exists() {
     let icon = gtk::Image::from_file(&icon_path);
     icon.set_pixel_size(HEADER_ICON_PX);
@@ -80,12 +80,12 @@ pub(crate) fn build_page() -> gtk::Widget {
   let titles = gtk::Box::new(gtk::Orientation::Vertical, 2);
   titles.set_hexpand(true);
   titles.set_halign(gtk::Align::Fill);
-  let title = markup_label(&lang::t("siri_ai.title"), 17, "bold", pal.fg);
+  let title = markup_label(&lang::t("tinti_ai.title"), 17, "bold", pal.fg);
   title.set_halign(gtk::Align::Start);
   title.set_xalign(0.0);
   titles.append(&title);
   let subtitle = markup_label(
-    &lang::t("siri_ai.header.subtitle"),
+    &lang::t("tinti_ai.header.subtitle"),
     13,
     "normal",
     pal.secondary,
@@ -106,14 +106,14 @@ pub(crate) fn build_page() -> gtk::Widget {
   let rows = gtk::Box::new(gtk::Orientation::Vertical, 0);
   rows.set_hexpand(true);
   rows.append(&toggle_row(
-    "siri_ai.listen",
+    "tinti_ai.listen",
     true,
-    "Listen for Siri",
+    "Listen for Tinti",
     pal.fg,
     false,
   ));
   rows.append(&toggle_row(
-    "siri_ai.suggestions",
+    "tinti_ai.suggestions",
     true,
     "AI Suggestions",
     pal.fg,

@@ -1,6 +1,6 @@
 //! Spotlight settings page for SystemSettings (example content).
 //!
-//! Header with a gray search icon plus example toggle rows (Siri
+//! Header with a gray search icon plus example toggle rows (Tinti
 //! Suggestions, Recent Searches). All text uses SF Pro Display and both
 //! `en_us` and `de_de` strings.
 
@@ -103,9 +103,9 @@ pub(crate) fn build_page() -> gtk::Widget {
   let rows = gtk::Box::new(gtk::Orientation::Vertical, 0);
   rows.set_hexpand(true);
   rows.append(&toggle_row(
-    "spotlight.siri_suggestions",
+    "spotlight.tinti_suggestions",
     true,
-    "Siri Suggestions",
+    "Tinti Suggestions",
     pal.fg,
     false,
   ));

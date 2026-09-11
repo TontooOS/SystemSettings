@@ -2,7 +2,7 @@
 //!
 //! One module per settings page (`wifi`, `bluetooth`, `network`,
 //! `battery`, `general`, `accessibility`, `appearance`, `desktop_dock`,
-//! `displays`, `menu_bar`, `siri_ai`, `spotlight`, `wallpaper`,
+//! `displays`, `menu_bar`, `tinti_ai`, `spotlight`, `wallpaper`,
 //! `notifications`, `sound`, `focus`, `screen_time`, `lock_screen`,
 //! `privacy`, `touch_id`, `users`, `internet_accounts`, `octo_cloud`,
 //! `keyboard`, `mouse`, `printers`, `app_settings`, `developer`);
@@ -31,7 +31,7 @@ pub mod printers;
 pub mod privacy;
 pub mod root;
 pub mod screen_time;
-pub mod siri_ai;
+pub mod tinti_ai;
 pub mod sound;
 pub mod spotlight;
 pub mod touch_id;

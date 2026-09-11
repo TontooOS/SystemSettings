@@ -32,6 +32,10 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-11: Renamed Siri AI to Tinti AI (`src/views/tinti_ai.rs`,
+  `tinti_ai.*` + `sidebar.tinti_ai` + `spotlight.tinti_suggestions` keys in
+  all `lang` files, stale top-level `lang/` synced with `Resources/lang/`,
+  Spotlight row key fixed).
 - 2026-09-09: App Settings category (bundled `launchpad.png` icon after
   an empty gap, example page with Default/Auto Update rows) and
   Developer category (gray `hammer.fill` icon after another gap,

@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex};
 
 /// Sidebar index order: 0 Wi-Fi, 1 Bluetooth, 2 Network, 3 Battery,
 /// 4 General, 5 Accessibility, 6 Appearance, 7 Desktop & Dock,
-/// 8 Displays, 9 Menu Bar, 10 Siri AI, 11 Spotlight, 12 Wallpaper,
+/// 8 Displays, 9 Menu Bar, 10 Tinti AI, 11 Spotlight, 12 Wallpaper,
 /// 13 Notifications, 14 Sound, 15 Focus, 16 Screen Time, 17 Lock Screen,
 /// 18 Privacy & Security, 19 Touch ID & Password, 20 Users & Groups,
 /// 21 Internet Accounts, 22 Octo Cloud, 23 Keyboard, 24 Mouse & Trackpad,
@@ -41,7 +41,7 @@ const PAGE_TITLES: [&str; 28] = [
   "desktop_dock.title",
   "displays.title",
   "menu_bar.title",
-  "siri_ai.title",
+  "tinti_ai.title",
   "spotlight.title",
   "wallpaper.title",
   "notifications.title",
@@ -131,7 +131,7 @@ pub struct SettingsRoot {
   desktop_dock_page: gtk::Widget,
   displays_page: gtk::Widget,
   menu_bar_page: gtk::Widget,
-  siri_ai_page: gtk::Widget,
+  tinti_ai_page: gtk::Widget,
   spotlight_page: gtk::Widget,
   wallpaper_page: gtk::Widget,
   notifications_page: gtk::Widget,
@@ -165,7 +165,7 @@ fn page_for<'a>(
   desktop_dock: &'a gtk::Widget,
   displays: &'a gtk::Widget,
   menu_bar: &'a gtk::Widget,
-  siri_ai: &'a gtk::Widget,
+  tinti_ai: &'a gtk::Widget,
   spotlight: &'a gtk::Widget,
   wallpaper: &'a gtk::Widget,
   notifications: &'a gtk::Widget,
@@ -195,7 +195,7 @@ fn page_for<'a>(
     7 => desktop_dock,
     8 => displays,
     9 => menu_bar,
-    10 => siri_ai,
+    10 => tinti_ai,
     11 => spotlight,
     12 => wallpaper,
     13 => notifications,
@@ -228,7 +228,7 @@ impl SettingsRoot {
     let desktop_dock_page = super::desktop_dock::build_page();
     let displays_page = super::displays::build_page();
     let menu_bar_page = super::menu_bar::build_page();
-    let siri_ai_page = super::siri_ai::build_page();
+    let tinti_ai_page = super::tinti_ai::build_page();
     let spotlight_page = super::spotlight::build_page();
     let wallpaper_page = super::wallpaper::build_page();
     let notifications_page = super::notifications::build_page();
@@ -338,8 +338,8 @@ impl SettingsRoot {
         ),
       )
       .item(
-        lang::t("sidebar.siri_ai"),
-        SidebarIcon::file(super::siri_ai::siri_png()),
+        lang::t("sidebar.tinti_ai"),
+        SidebarIcon::file(super::tinti_ai::tinti_png()),
       )
       .item(
         lang::t("sidebar.spotlight"),
@@ -485,7 +485,7 @@ impl SettingsRoot {
       desktop_dock_page,
       displays_page,
       menu_bar_page,
-      siri_ai_page,
+      tinti_ai_page,
       spotlight_page,
       wallpaper_page,
       notifications_page,
@@ -620,7 +620,7 @@ impl Widget for SettingsRoot {
       &self.desktop_dock_page,
       &self.displays_page,
       &self.menu_bar_page,
-      &self.siri_ai_page,
+      &self.tinti_ai_page,
       &self.spotlight_page,
       &self.wallpaper_page,
       &self.notifications_page,
@@ -660,7 +660,7 @@ impl Widget for SettingsRoot {
     let desktop_dock_poller = self.desktop_dock_page.clone();
     let displays_poller = self.displays_page.clone();
     let menu_bar_poller = self.menu_bar_page.clone();
-    let siri_ai_poller = self.siri_ai_page.clone();
+    let tinti_ai_poller = self.tinti_ai_page.clone();
     let spotlight_poller = self.spotlight_page.clone();
     let wallpaper_poller = self.wallpaper_page.clone();
     let notifications_poller = self.notifications_page.clone();
@@ -706,7 +706,7 @@ impl Widget for SettingsRoot {
           &desktop_dock_poller,
           &displays_poller,
           &menu_bar_poller,
-          &siri_ai_poller,
+          &tinti_ai_poller,
           &spotlight_poller,
           &wallpaper_poller,
           &notifications_poller,

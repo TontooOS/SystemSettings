@@ -39,7 +39,7 @@ CoreIcon generates the icon PNGs at render time.
 | `item` | `lang::t("sidebar.desktop_dock")` + `SidebarIcon::sf("menubar.dock.rectangle", black)` |
 | `item` | `lang::t("sidebar.displays")` + `SidebarIcon::sf("sun.max.fill", blue)` |
 | `item` | `lang::t("sidebar.menu_bar")` + `SidebarIcon::sf("switch.2", gray)` |
-| `item` | `lang::t("sidebar.siri_ai")` + `SidebarIcon::file(...)` (bundled PNG, used as-is) |
+| `item` | `lang::t("sidebar.tinti_ai")` + `SidebarIcon::file(...)` (bundled PNG, used as-is) |
 | `item` | `lang::t("sidebar.spotlight")` + `SidebarIcon::sf("magnifyingglass", gray)` |
 | `item` | `lang::t("sidebar.wallpaper")` + `SidebarIcon::sf("atom", teal)` |
 | `section` | `""` (empty gap before the Lock Screen group) |
@@ -331,33 +331,33 @@ Clock (on) and Spotlight (off) toggles.
 | `menu_bar.clock` | `Clock` | `Uhr` |
 | `menu_bar.spotlight` | `Spotlight` | `Spotlight` |
 
-## Siri AI page
+## Tinti AI page
 
-Example content (`src/views/siri_ai.rs`): header with the bundled PNG
-icon (`Resources/siri.png`, sidebar via `SidebarIcon::file`, header via
-`gtk::Image` directly), title and subtitle, then Listen for Siri (on)
+Example content (`src/views/tinti_ai.rs`): header with the bundled PNG
+icon (`Resources/tinti.png`, sidebar via `SidebarIcon::file`, header via
+`gtk::Image` directly), title and subtitle, then Listen for Tinti (on)
 and AI Suggestions (on) toggles.
 
 | Key | en_us | de_de |
 |---|---|---|
-| `sidebar.siri_ai` | `Siri AI` | `Siri AI` |
-| `siri_ai.title` | `Siri AI` | `Siri AI` |
-| `siri_ai.header.subtitle` | `Talk to Siri and get intelligent suggestions.` | `Sprich mit Siri und erhalte intelligente Vorschläge.` |
-| `siri_ai.listen` | `Listen for Siri` | `Auf Siri hören` |
-| `siri_ai.suggestions` | `AI Suggestions` | `KI-Vorschläge` |
+| `sidebar.tinti_ai` | `Tinti AI` | `Tinti AI` |
+| `tinti_ai.title` | `Tinti AI` | `Tinti AI` |
+| `tinti_ai.header.subtitle` | `Talk to Tinti and get intelligent suggestions.` | `Sprich mit Tinti und erhalte intelligente Vorschläge.` |
+| `tinti_ai.listen` | `Listen for Tinti` | `Auf Tinti hören` |
+| `tinti_ai.suggestions` | `AI Suggestions` | `KI-Vorschläge` |
 
 ## Spotlight page
 
 Example content (`src/views/spotlight.rs`): header with the gray
 `magnifyingglass` icon (Apple-gray like General), title and subtitle,
-then Siri Suggestions (on) and Recent Searches (off) toggles.
+then Tinti Suggestions (on) and Recent Searches (off) toggles.
 
 | Key | en_us | de_de |
 |---|---|---|
 | `sidebar.spotlight` | `Spotlight` | `Spotlight` |
 | `spotlight.title` | `Spotlight` | `Spotlight` |
 | `spotlight.header.subtitle` | `Search apps, files and the web.` | `Apps, Dateien und das Web durchsuchen.` |
-| `spotlight.siri_suggestions` | `Siri Suggestions` | `Siri-Vorschläge` |
+| `spotlight.tinti_suggestions` | `Tinti Suggestions` | `Tinti-Vorschläge` |
 | `spotlight.recents` | `Recent Searches` | `Letzte Suchanfragen` |
 
 ## Wallpaper page
