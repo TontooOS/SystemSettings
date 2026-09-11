@@ -203,8 +203,20 @@ fn thumb_picture(path: &str, width: i32, height: i32) -> Option<gtk::Picture> {
     return None;
   }
   let file = cached_thumb(source).unwrap_or_else(|| source.to_path_buf());
+  picture_from_file(&file, width, height)
+}
+
+/// Small `Picture` with cover fit and rounded corners. The file must
+/// already be thumbnail-sized (never a 4K original).
+fn picture_from_file(file: &std::path::Path, width: i32, height: i32) -> Option<gtk::Picture> {
   let picture = gtk::Picture::for_filename(file.to_str()?);
   picture.set_content_fit(gtk::ContentFit::Cover);
+  // Fixed cell size: no expand (Picture expands by default and would
+  // stretch every grid row full width), shrinkable below the intrinsic
+  // texture size so boxes flow responsively.
+  picture.set_hexpand(false);
+  picture.set_vexpand(false);
+  picture.set_can_shrink(true);
   picture.set_size_request(width, height);
   picture.add_css_class("wallpaper-thumb");
   crate::UIKit::apply_css(
@@ -253,22 +265,31 @@ fn fill_lists(
     let popup_entry = entry.clone();
     let popup_applied = on_applied.clone();
     let gesture = gtk::GestureClick::new();
-    gesture.connect_released(move |_, _, _, _| {
-      open_popup(&popup_entry, popup_applied.clone());
+    gesture.connect_released(move |gesture, _, _, _| {
+      let parent = gesture
+        .widget()
+        .and_then(|w| w.root())
+        .and_then(|root| root.downcast::<gtk::Window>().ok());
+      open_popup(&popup_entry, parent, popup_applied.clone());
     });
     cell.add_controller(gesture);
     premade_grid.insert(&cell, -1);
   }
 }
 
-/// Preview file for a popup variant: light and dark resolve their files
-/// (fallback to the default path), auto composites the diagonal split.
+/// Preview file for a popup variant, always thumbnail-sized (never 4K):
+/// light and dark resolve to cached small files (fallback to the default
+/// path), auto composites the diagonal split.
 fn preview_file(entry: &daemon::WallpaperEntry, variant: &str) -> Option<std::path::PathBuf> {
-  let pick = |path: &str| {
+  let small = |path: &str| {
     if path.is_empty() {
       None
     } else {
-      Some(std::path::PathBuf::from(path))
+      let source = std::path::PathBuf::from(path);
+      if !source.is_file() {
+        return None;
+      }
+      Some(cached_thumb(&source).unwrap_or(source))
     }
   };
   match variant {
@@ -278,7 +299,7 @@ fn preview_file(entry: &daemon::WallpaperEntry, variant: &str) -> Option<std::pa
       } else {
         entry.path_dark.clone()
       };
-      pick(&dark).filter(|p| p.is_file())
+      small(&dark)
     }
     "auto" => {
       let light = std::path::PathBuf::from(&entry.path);
@@ -290,21 +311,34 @@ fn preview_file(entry: &daemon::WallpaperEntry, variant: &str) -> Option<std::pa
       if light.is_file() && dark.is_file() {
         split_preview(&light, &dark, PREVIEW_W, PREVIEW_H)
       } else {
-        pick(&entry.path).filter(|p| p.is_file())
+        small(&entry.path)
       }
     }
-    _ => pick(&entry.path).filter(|p| p.is_file()),
+    _ => small(&entry.path),
   }
 }
 
-/// Apply popup for one wallpaper: big preview, Light/Auto/Dark mode
-/// buttons (Auto in the middle), Cancel and Set at the bottom. Set
-/// applies to the desktop via the daemon and reports back through
-/// `on_applied`; errors only log and keep the popup open.
-fn open_popup(entry: &daemon::WallpaperEntry, on_applied: Rc<dyn Fn(daemon::WallpaperEntry)>) {
+/// Preview cell width/height inside the popup (three fit side by side).
+const POPUP_PREVIEW_W: i32 = 150;
+const POPUP_PREVIEW_H: i32 = 95;
+
+/// Apply popup for one wallpaper: Light/Auto/Dark previews side by side
+/// (all thumbnail-sized, never 4K), click selects with an accent border,
+/// Cancel and Set at the bottom. Borderless modal centered on the
+/// Settings window. Set applies to the desktop via the daemon and reports
+/// back through `on_applied`; errors only log and keep the popup open.
+fn open_popup(
+  entry: &daemon::WallpaperEntry,
+  parent: Option<gtk::Window>,
+  on_applied: Rc<dyn Fn(daemon::WallpaperEntry)>,
+) {
   let dialog = gtk::Window::new();
   dialog.set_title(Some(&entry.name));
   dialog.set_modal(true);
+  dialog.set_decorated(false);
+  if let Some(parent) = parent {
+    dialog.set_transient_for(Some(&parent));
+  }
   dialog.set_default_size(520, -1);
 
   let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
@@ -313,56 +347,55 @@ fn open_popup(entry: &daemon::WallpaperEntry, on_applied: Rc<dyn Fn(daemon::Wall
   content.set_margin_start(16);
   content.set_margin_end(16);
 
-  let preview = gtk::Picture::new();
-  preview.set_content_fit(gtk::ContentFit::Cover);
-  preview.set_size_request(PREVIEW_W as i32, PREVIEW_H as i32);
-  preview.add_css_class("wallpaper-preview");
-  crate::UIKit::apply_css(
-    &preview,
-    &format!(
-      "picture.wallpaper-preview {{ border-radius: {}px; }}",
-      THUMB_CORNER_PX
-    ),
-  );
-  content.append(&preview);
-
-  let modes = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-  modes.set_halign(gtk::Align::Center);
+  // Three selectable previews side by side, Auto selected by default.
+  let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+  row.set_halign(gtk::Align::Center);
   let variant = Rc::new(std::cell::Cell::new(1usize));
-  let mut toggles: Vec<gtk::ToggleButton> = Vec::new();
+  let mut frames: Vec<gtk::Box> = Vec::new();
   for (index, id) in PREVIEW_ORDER.iter().enumerate() {
-    let toggle = gtk::ToggleButton::with_label(&lang::t(&mode_key(id)));
-    toggle.set_active(index == 1);
-    toggles.push(toggle);
-  }
-  let preview_update = preview.clone();
-  let entry_update = entry.clone();
-  for (index, toggle) in toggles.iter().enumerate() {
-    let siblings = toggles.clone();
-    let variant_cb = variant.clone();
-    let preview_cb = preview_update.clone();
-    let entry_cb = entry_update.clone();
-    toggle.connect_toggled(move |t| {
-      if !t.is_active() {
-        return;
+    let frame = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    frame.add_css_class("wp-pick");
+    if index == 1 {
+      frame.add_css_class("selected");
+    }
+    crate::UIKit::apply_css(
+      &frame,
+      ".wp-pick { padding: 3px; border-radius: 14px; border: 3px solid transparent; } \
+       .wp-pick.selected { border-color: #FF6B2B; }",
+    );
+    if let Some(file) = preview_file(entry, id) {
+      if let Some(picture) = picture_from_file(&file, POPUP_PREVIEW_W, POPUP_PREVIEW_H) {
+        picture.set_halign(gtk::Align::Center);
+        frame.append(&picture);
       }
+    }
+    let label = markup_label(&lang::t(&mode_key(id)), 12, "normal", "#F5F5F7");
+    label.set_halign(gtk::Align::Center);
+    label.set_xalign(0.5);
+    frame.append(&label);
+    if let Some(cursor) = gtk::gdk::Cursor::from_name("pointer", None) {
+      frame.set_cursor(Some(&cursor));
+    }
+    frames.push(frame);
+  }
+  for (index, frame) in frames.iter().enumerate() {
+    let siblings = frames.clone();
+    let variant_cb = variant.clone();
+    let gesture = gtk::GestureClick::new();
+    gesture.connect_released(move |_, _, _, _| {
+      variant_cb.set(index);
       for (other_index, other) in siblings.iter().enumerate() {
-        if other_index != index {
-          other.set_active(false);
+        if other_index == index {
+          other.add_css_class("selected");
+        } else {
+          other.remove_css_class("selected");
         }
       }
-      variant_cb.set(index);
-      let id = PREVIEW_ORDER.get(index).copied().unwrap_or("auto");
-      if let Some(file) = preview_file(&entry_cb, id) {
-        preview_cb.set_filename(file.to_str());
-      }
     });
-    modes.append(toggle);
+    frame.add_controller(gesture);
+    row.append(frame);
   }
-  content.append(&modes);
-  if let Some(file) = preview_file(entry, "auto") {
-    preview.set_filename(file.to_str());
-  }
+  content.append(&row);
 
   dialog.set_child(Some(&content));
   let popup_entry = entry.clone();

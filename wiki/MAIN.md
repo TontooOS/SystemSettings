@@ -32,6 +32,11 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-11: Wallpaper popup reworked (borderless, centered on the
+  app; Light/Auto/Dark previews side by side, all thumbnail-sized;
+  click selects with an accent border) and grid cells keep their size
+  so rows flow with the window width. The app only talks to the
+  settings daemon, never to the compositor directly.
 - 2026-09-11: Wallpaper apply popup (click a pack: preview with
   Light/Auto/Dark modes, diagonal split composite for Auto, Cancel/Set;
   Set applies to the desktop via `wallpaper_apply` and refreshes the
