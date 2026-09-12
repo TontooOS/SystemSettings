@@ -2,7 +2,8 @@
 //!
 //! Centered header (gear tile, title, subtitle) plus grouped row cards.
 //! The About row navigates to the hidden About detail page, the Date &
-//! Time row to the hidden Date & Time page; every other row is display
+//! Time row to the hidden Date & Time page and the Language & Region row
+//! to the hidden Language & Region page; every other row is display
 //! only. All text uses SF Pro Display and both `en_us` and `de_de`
 //! strings.
 
@@ -101,6 +102,8 @@ fn nav_row(row: &GeneralRow, pal_fg: &str, pal_secondary: &str, last: bool) -> g
 pub(crate) const ABOUT_PAGE: usize = 28;
 /// Date & Time detail page index (hidden page, history navigation only).
 pub(crate) const DATETIME_PAGE: usize = 29;
+/// Language & Region detail page index (hidden page, history navigation only).
+pub(crate) const LOCALE_PAGE: usize = 30;
 
 /// The General detail page (directly on the screen). The About row
 /// navigates to the hidden About detail page, every other row is
@@ -160,11 +163,13 @@ pub(crate) fn build_page(nav: &std::sync::Arc<std::sync::Mutex<super::root::NavS
     for (i, row) in ROWS[start..end].iter().enumerate() {
       let row_box = nav_row(row, fg, secondary, i + 1 == end - start);
       // The About row (first row overall) navigates to the hidden About
-      // detail page, the Date & Time row to the hidden Date & Time page;
-      // every other row is display only.
+      // detail page, the Date & Time row to the hidden Date & Time page
+      // and the Language & Region row to the hidden Language & Region
+      // page; every other row is display only.
       let target = match start + i {
         0 => Some(ABOUT_PAGE),
         5 => Some(DATETIME_PAGE),
+        6 => Some(LOCALE_PAGE),
         _ => None,
       };
       if let Some(page) = target {

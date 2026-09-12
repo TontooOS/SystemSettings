@@ -299,9 +299,11 @@ subtitle) plus grouped row cards — first 3 together (About, Software
 Update, Storage), AirDrop & Handoff alone, next 7 together (AutoFill &
 Passwords through Time Machine), last 2 alone (Device Management,
 Transfer or Reset) — each row with a CoreIcon tile, label and chevron.
-The About row navigates to the hidden About detail page and the Date &
-Time row to the hidden Date & Time page (history navigation, back button
-works); every other row is display only.
+The About row navigates to the hidden About detail page, the Date &
+Time row to the hidden Date & Time page (index 29) and the Language &
+Region row to the hidden Language & Region page (index 30, title from
+`general.language`; history navigation, back button works); every other
+row is display only.
 
 ## About page
 
@@ -337,6 +339,30 @@ show `datetime.tz_failed` and keep the menu open). State comes from
 | `datetime.use_24h` | `24-hour time` | `24-Stunden-Format` |
 | `datetime.timezone` | `Time Zone` | `Zeitzone` |
 | `datetime.tz_failed` | `Could not set time zone.` | `Zeitzone konnte nicht gesetzt werden.` |
+
+## Language & Region page
+
+`src/views/locale.rs`: hidden detail page behind the General Language
+& Region row (index 30, reached via history only). System language card
+with English/Deutsch rows (checkmark on the active one, tap applies
+via `locale_set_language`) plus a `locale.more_soon` note; region card
+with a menu button opening the full searchable country list (tap
+applies via `locale_set_region`, keyboard follows the region with Auto
+Detect on); keyboard card with an Auto Detect toggle (persists via
+`locale_set_auto_keymap`, failures show in the card) and a layout menu
+button opening the searchable X11 layout list, then the variant list
+(Back plus Default plus variants) for layouts with variants. All writes
+go through `localectl`, so changes apply system-wide.
+
+| Key | en_us | de_de |
+|---|---|---|
+| `locale.system` | `System Language` | `Systemsprache` |
+| `locale.more_soon` | `More soon` | `Bald mehr` |
+| `locale.region` | `Region` | `Region` |
+| `locale.keyboard` | `Keyboard Layout` | `Tastaturlayout` |
+| `locale.auto_detect` | `Auto Detect` | `Automatisch erkennen` |
+| `locale.failed` | `Could not apply the setting.` | `Einstellung konnte nicht angewendet werden.` |
+| `locale.default_variant` | `Default` | `Standard` |
 
 `src/views/about.rs`: hidden detail page behind the General About row
 (index 28, reached via history only, no sidebar entry). Device header
@@ -767,11 +793,13 @@ a Developer Mode toggle (off) plus an API Logs row.
 `src/daemon.rs` wires the app to the settings daemon over its unix socket
 (`SETTINGS_SOCKET` override, else `/run/tontoo-settings.sock`). It covers
 the public read ops (`wifi_list`, `wifi_status`, `wifi_known_list`,
-`dns_get`, `wired_list`, `datetime_get`, `wallpaper_get`,
+`dns_get`, `wired_list`, `datetime_get`, `locale_get`,
+`locale_keymap_variants`, `wallpaper_get`,
 `display_get`, `get_os`) and the
 private write ops (`wifi_connect`, `wifi_disconnect`, `wifi_enable`,
 `wifi_disable`, `wifi_forget`, `dns_set`, `datetime_set_timezone`,
-`datetime_set_24h`, `wallpaper_set_current`,
+`datetime_set_24h`, `locale_set_language`, `locale_set_region`,
+`locale_set_keymap`, `locale_set_auto_keymap`, `wallpaper_set_current`,
 `wallpaper_set_fill`, `wallpaper_add`) reserved for this app
 (`com.tontoo.systemsettings`).
 
@@ -789,6 +817,12 @@ pub fn wired_list() -> Result<Vec<WiredInfo>, String>
 pub fn datetime_get() -> Result<DateTimeState, String>
 pub fn datetime_set_timezone(timezone: &str) -> Result<DateTimeState, String>
 pub fn datetime_set_24h(use_24h: bool) -> Result<DateTimeState, String>
+pub fn locale_get() -> Result<LocaleState, String>
+pub fn locale_set_language(language: &str) -> Result<LocaleState, String>
+pub fn locale_set_region(region: &str) -> Result<LocaleState, String>
+pub fn locale_set_keymap(layout: &str, variant: Option<&str>) -> Result<LocaleState, String>
+pub fn locale_set_auto_keymap(auto: bool) -> Result<LocaleState, String>
+pub fn locale_keymap_variants(layout: &str) -> Result<Vec<String>, String>
 pub fn wallpaper_get() -> Result<WallpaperState, String>
 pub fn wallpaper_set_current(kind: &str, id: &str) -> Result<Option<WallpaperEntry>, String>
 pub fn wallpaper_set_fill(fill: &str) -> Result<String, String>

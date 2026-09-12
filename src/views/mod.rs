@@ -23,6 +23,7 @@ pub mod focus;
 pub mod general;
 pub mod internet_accounts;
 pub mod keyboard;
+pub mod locale;
 pub mod lock_screen;
 pub mod menu_bar;
 pub mod mouse;

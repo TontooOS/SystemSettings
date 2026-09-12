@@ -1,10 +1,13 @@
 //! Settings daemon client (WiFi domain plus wallpaper, display and OS state).
 //!
 //! Covers the public read ops (`wifi_list`, `wifi_status`,
-//! `wifi_known_list`, `dns_get`, `wired_list`, `datetime_get`) and the
-//! private write ops (`wifi_connect`, `wifi_disconnect`, `wifi_enable`,
-//! `wifi_disable`, `wifi_forget`, `dns_set`, `datetime_set_timezone`,
-//! `datetime_set_24h`) reserved for this app (`com.tontoo.systemsettings`).
+//! `wifi_known_list`, `dns_get`, `wired_list`, `datetime_get`,
+//! `locale_get`, `locale_keymap_variants`) and the private write ops
+//! (`wifi_connect`, `wifi_disconnect`, `wifi_enable`, `wifi_disable`,
+//! `wifi_forget`, `dns_set`, `datetime_set_timezone`, `datetime_set_24h`,
+//! `locale_set_language`, `locale_set_region`, `locale_set_keymap`,
+//! `locale_set_auto_keymap`) reserved for this app
+//! (`com.tontoo.systemsettings`).
 //!
 //! The Wallpaper and Displays pages are daemon-wired: `wallpaper_get`
 //! (public read) loads the full wallpaper state, `wallpaper_set_current`,
@@ -279,6 +282,120 @@ pub fn datetime_set_24h(use_24h: bool) -> Result<DateTimeState, String> {
         serde_json::json!({"use_24h": use_24h}),
     )?;
     serde_json::from_value(result).map_err(|e| format!("datetime set invalid: {}", e))
+}
+
+/// One language option (`locale_get`, public).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct LanguageEntry {
+    #[serde(default)]
+    pub code: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+/// One region option (`locale_get`, public).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct RegionEntry {
+    #[serde(default)]
+    pub code: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+/// Effective language & region state behind `locale_get` (public).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct LocaleState {
+    #[serde(default)]
+    pub language: String,
+    #[serde(default)]
+    pub region: String,
+    #[serde(default)]
+    pub keymap: String,
+    pub keymap_variant: Option<String>,
+    #[serde(default)]
+    pub auto_keymap: bool,
+    #[serde(default)]
+    pub languages: Vec<LanguageEntry>,
+    #[serde(default)]
+    pub regions: Vec<RegionEntry>,
+    #[serde(default)]
+    pub keymaps: Vec<String>,
+}
+
+impl Default for LocaleState {
+    fn default() -> Self {
+        Self {
+            language: "en".to_string(),
+            region: "US".to_string(),
+            keymap: String::new(),
+            keymap_variant: None,
+            auto_keymap: true,
+            languages: vec![
+                LanguageEntry { code: "en".to_string(), name: "English".to_string() },
+                LanguageEntry { code: "de".to_string(), name: "Deutsch".to_string() },
+            ],
+            regions: Vec::new(),
+            keymaps: Vec::new(),
+        }
+    }
+}
+
+/// Read language, region, keyboard and option lists (`locale_get`, public).
+pub fn locale_get() -> Result<LocaleState, String> {
+    let result = call("locale_get", serde_json::json!({}))?;
+    serde_json::from_value(result).map_err(|e| format!("locale get invalid: {}", e))
+}
+
+/// Set the system language (`locale_set_language`, private).
+pub fn locale_set_language(language: &str) -> Result<LocaleState, String> {
+    let result = call(
+        "locale_set_language",
+        serde_json::json!({"language": language}),
+    )?;
+    serde_json::from_value(result).map_err(|e| format!("locale set invalid: {}", e))
+}
+
+/// Set the region formats (`locale_set_region`, private).
+pub fn locale_set_region(region: &str) -> Result<LocaleState, String> {
+    let result = call(
+        "locale_set_region",
+        serde_json::json!({"region": region}),
+    )?;
+    serde_json::from_value(result).map_err(|e| format!("locale set invalid: {}", e))
+}
+
+/// Set the keyboard layout (`locale_set_keymap`, private). `variant`
+/// `None` means the default variant.
+pub fn locale_set_keymap(layout: &str, variant: Option<&str>) -> Result<LocaleState, String> {
+    let result = call(
+        "locale_set_keymap",
+        serde_json::json!({"layout": layout, "variant": variant}),
+    )?;
+    serde_json::from_value(result).map_err(|e| format!("locale set invalid: {}", e))
+}
+
+/// Switch keyboard auto-detect (`locale_set_auto_keymap`, private).
+pub fn locale_set_auto_keymap(auto: bool) -> Result<LocaleState, String> {
+    let result = call(
+        "locale_set_auto_keymap",
+        serde_json::json!({"auto": auto}),
+    )?;
+    serde_json::from_value(result).map_err(|e| format!("locale set invalid: {}", e))
+}
+
+/// Variants for one keyboard layout (`locale_keymap_variants`, public).
+pub fn locale_keymap_variants(layout: &str) -> Result<Vec<String>, String> {
+    let result = call(
+        "locale_keymap_variants",
+        serde_json::json!({"layout": layout}),
+    )?;
+    serde_json::from_value(
+        result
+            .get("variants")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+    )
+    .map_err(|e| format!("locale variants invalid: {}", e))
 }
 
 /// Connect to a network (`wifi_connect`, private). Open networks take
@@ -789,6 +906,69 @@ mod tests {
         );
         let err = datetime_set_timezone("Mars/Olympus_Mons").unwrap_err();
         assert!(err.contains("unknown timezone"));
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn locale_get_roundtrip_with_defaults() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("locale-get");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result":
+                {"language": "de", "region": "DE", "keymap": "de",
+                 "keymap_variant": null, "auto_keymap": true,
+                 "languages": [{"code": "en", "name": "English"},
+                               {"code": "de", "name": "Deutsch"}],
+                 "regions": [{"code": "DE", "name": "Germany"}],
+                 "keymaps": ["de", "us"]}}),
+        );
+        let state = locale_get().unwrap();
+        assert_eq!(state.language, "de");
+        assert_eq!(state.region, "DE");
+        assert_eq!(state.keymap, "de");
+        assert_eq!(state.keymap_variant, None);
+        assert!(state.auto_keymap);
+        assert_eq!(state.languages.len(), 2);
+        assert_eq!(state.keymaps, vec!["de", "us"]);
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn locale_set_roundtrips_and_errors() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("locale-lang");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result":
+                {"language": "de", "region": "US", "keymap": "",
+                 "auto_keymap": true, "languages": [], "regions": [],
+                 "keymaps": []}}),
+        );
+        assert_eq!(locale_set_language("de").unwrap().language, "de");
+
+        let path = unique_socket("locale-variants");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result":
+                {"variants": ["nodeadkeys", "deadtilde"]}}),
+        );
+        assert_eq!(
+            locale_keymap_variants("de").unwrap(),
+            vec!["nodeadkeys", "deadtilde"]
+        );
+
+        let path = unique_socket("locale-lang-error");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": false, "error": "locale set failed: unsupported language"}),
+        );
+        let err = locale_set_language("fr").unwrap_err();
+        assert!(err.contains("unsupported language"));
         std::env::remove_var("SETTINGS_SOCKET");
     }
 

@@ -32,6 +32,10 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: Language & Region page (General row, hidden index 30):
+  system language EN/DE with checkmark plus "More soon", searchable
+  full country list, keyboard layouts with variants plus Auto Detect —
+  all applied system-wide through the daemon `localectl` backend.
 - 2026-09-12: Automatic time toggle always on and locked (daemon
   enforces NTP at startup).
 - 2026-09-12: Date & Time timezone menu with working search
