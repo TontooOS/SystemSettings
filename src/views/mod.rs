@@ -141,3 +141,31 @@ pub(crate) fn sidebar_style_icon_path(
   canvas.save(&path).ok()?;
   Some(path.to_str()?.to_string())
 }
+
+/// Render an SF Symbol as a fully round, slightly transparent avatar disc
+/// (gray fill at low alpha, white glyph). Returns the cached PNG path.
+/// Unlike the sidebar tiles this has no opaque background, so it reads
+/// as a plain circle on any theme.
+pub(crate) fn avatar_icon_path(symbol_name: &str, tag: &str) -> Option<String> {
+  let symbol = CoreIcon::SFSymbol::from_name(symbol_name)?;
+  point_to_coreicon();
+
+  let path = std::env::temp_dir().join(format!("settings_avatar_{}.png", tag));
+  if path.exists() {
+    return Some(path.to_str()?.to_string());
+  }
+
+  let canvas = CoreIcon::generator::IconCanvas::new()
+    .background(CoreIcon::generator::Background::color(CoreIcon::Color::new(
+      0.55, 0.55, 0.57, 0.35,
+    )))
+    .corner_radius(512.0)
+    .layer(
+      CoreIcon::generator::Layer::new(CoreIcon::generator::LayerContent::icon(symbol))
+        .position(192.0, 192.0)
+        .size(640.0, 640.0)
+        .tint(CoreIcon::Color::new(1.0, 1.0, 1.0, 1.0)),
+    );
+  canvas.save(&path).ok()?;
+  Some(path.to_str()?.to_string())
+}

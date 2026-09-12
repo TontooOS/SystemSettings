@@ -532,21 +532,25 @@ fn signin_row(fg: &str, secondary: &str) -> gtk::Box {
   row.set_margin_bottom(6);
   row.set_margin_start(10);
   row.set_margin_end(10);
-  if let Some(avatar_path) = super::sidebar_style_icon_path(
-    "person.crop.circle.fill",
-    "signin",
-    super::BADGE_GRAY,
-  ) {
-    let avatar = gtk::Picture::for_filename(&avatar_path);
-    avatar.set_content_fit(gtk::ContentFit::Cover);
-    avatar.set_hexpand(false);
-    avatar.set_vexpand(false);
-    avatar.set_can_shrink(true);
-    avatar.set_size_request(40, 40);
-    avatar.set_valign(gtk::Align::Center);
-    avatar.add_css_class("signin-avatar");
-    apply_css(&avatar, "picture.signin-avatar { border-radius: 20px; }");
-    row.append(&avatar);
+  if let Some(avatar_path) = super::avatar_icon_path("person.crop.circle.fill", "signin") {
+    // Exact 40px file: the raw tile texture must never reach layout,
+    // or the avatar renders giant.
+    let file = super::wallpaper::cached_thumb_exact(
+      std::path::Path::new(&avatar_path),
+      40,
+      40,
+    )
+    .unwrap_or_else(|| std::path::PathBuf::from(&avatar_path));
+    if let Some(file) = file.to_str() {
+      let avatar = gtk::Picture::for_filename(file);
+      avatar.set_content_fit(gtk::ContentFit::Cover);
+      avatar.set_hexpand(false);
+      avatar.set_vexpand(false);
+      avatar.set_can_shrink(true);
+      avatar.set_size_request(40, 40);
+      avatar.set_valign(gtk::Align::Center);
+      row.append(&avatar);
+    }
   }
   let texts = gtk::Box::new(gtk::Orientation::Vertical, 2);
   texts.set_hexpand(true);

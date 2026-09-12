@@ -32,6 +32,8 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: Sign-in avatar as plain SF glyph on a fully round,
+  slightly transparent disc (no tile, fixed 40px via exact-size thumb).
 - 2026-09-12: Sign-in header below the sidebar search (avatar plus
   bold title and subtitle, display only for now; injected below the
   search field since the TontooUI Sidebar has no header slot).
