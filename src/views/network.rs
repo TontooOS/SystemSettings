@@ -5,16 +5,33 @@
 //! All text uses SF Pro Display and both `en_us` and `de_de` strings.
 
 use super::{WIFI_BLUE, is_dark, markup_label, palette, sidebar_style_icon_path};
+use crate::daemon;
 use crate::lang;
 use crate::TontooUI::Toggle;
 use crate::UIKit::prelude::*;
 use gtk::prelude::*;
+use std::rc::Rc;
 
 const HEADER_ICON_PX: i32 = 32;
+
+/// Suggested manual servers when switching from DHCP.
+const DEFAULT_DNS_INPUT: &str = "1.1.1.1, 8.8.8.8";
 
 /// Blue `network` icon, same artwork as the sidebar row icon.
 fn network_icon_path() -> Option<String> {
   sidebar_style_icon_path("network", "network", WIFI_BLUE)
+}
+
+/// Inline markup matching `markup_label`, for updating labels in place.
+fn span(text: &str, size: u32, weight: &str, color: &str) -> String {
+  format!(
+    "<span font_desc=\"{} {} {}\" foreground=\"{}\">{}</span>",
+    super::SF_PRO,
+    weight,
+    size,
+    color,
+    glib::markup_escape_text(text),
+  )
 }
 
 /// Rounded card container in the page palette color (same style as the
@@ -30,6 +47,148 @@ fn card(pal_card: &str) -> gtk::Box {
     ),
   );
   card
+}
+
+/// DNS card: single big title, clickable value, inline editor.
+/// Clicking the value turns it into a text field prefilled with the
+/// current servers (or `1.1.1.1, 8.8.8.8` on DHCP); Enter or leaving the
+/// field saves through the daemon (empty means DHCP) and the card shows
+/// the effective state.
+fn build_dns_card(fg: &'static str, secondary: &'static str, card_color: &str) -> gtk::Box {
+  let card_box = card(card_color);
+
+  let title_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+  title_row.set_hexpand(true);
+  title_row.set_valign(gtk::Align::Center);
+  title_row.set_margin_top(5);
+  title_row.set_margin_bottom(5);
+  let title = markup_label(&lang::t("network.dns"), 15, "bold", fg);
+  title.set_halign(gtk::Align::Start);
+  title.set_xalign(0.0);
+  title.set_hexpand(true);
+  title_row.append(&title);
+  let mode = markup_label("", 13, "normal", secondary);
+  mode.set_halign(gtk::Align::End);
+  mode.set_valign(gtk::Align::Center);
+  title_row.append(&mode);
+  card_box.append(&title_row);
+
+  let value = markup_label("", 13, "normal", secondary);
+  value.set_halign(gtk::Align::Start);
+  value.set_xalign(0.0);
+  value.set_hexpand(true);
+  value.set_margin_bottom(5);
+  value.set_focusable(true);
+  if let Some(cursor) = gtk::gdk::Cursor::from_name("pointer", None) {
+    value.set_cursor(Some(&cursor));
+  }
+  card_box.append(&value);
+
+  let entry = gtk::Entry::new();
+  entry.set_hexpand(true);
+  entry.set_margin_bottom(5);
+  entry.set_visible(false);
+  card_box.append(&entry);
+
+  let hint = markup_label(&lang::t("network.dns.hint"), 12, "normal", secondary);
+  hint.set_halign(gtk::Align::Start);
+  hint.set_xalign(0.0);
+  hint.set_margin_bottom(5);
+  hint.set_visible(false);
+  card_box.append(&hint);
+
+  let error = markup_label("", 12, "normal", "#FF453A");
+  error.set_halign(gtk::Align::Start);
+  error.set_xalign(0.0);
+  error.set_wrap(true);
+  error.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+  error.set_margin_bottom(5);
+  error.set_visible(false);
+  card_box.append(&error);
+
+  // Reload the daemon state into the labels.
+  let value_r = value.clone();
+  let mode_r = mode.clone();
+  let refresh: Rc<dyn Fn()> = Rc::new(move || {
+    let state = daemon::dns_get().unwrap_or(daemon::DnsState {
+      servers: Vec::new(),
+      manual: false,
+    });
+    if state.manual && !state.servers.is_empty() {
+      value_r.set_markup(&span(&state.servers.join(", "), 13, "normal", secondary));
+      mode_r.set_markup(&span("", 13, "normal", secondary));
+    } else {
+      value_r.set_markup(&span(&lang::t("network.dns.automatic"), 13, "normal", secondary));
+      mode_r.set_markup(&span(&lang::t("network.dns.automatic"), 13, "normal", secondary));
+    }
+  });
+  refresh();
+
+  // Save the editor content through the daemon; empty means DHCP.
+  let value_s = value.clone();
+  let entry_s = entry.clone();
+  let hint_s = hint.clone();
+  let error_s = error.clone();
+  let refresh_s = Rc::clone(&refresh);
+  let save: Rc<dyn Fn()> = Rc::new(move || {
+    if !gtk::prelude::WidgetExt::is_visible(&entry_s) {
+      return;
+    }
+    match daemon::dns_set(&entry_s.text().to_string()) {
+      Ok(_) => {
+        refresh_s();
+        entry_s.set_visible(false);
+        hint_s.set_visible(false);
+        error_s.set_visible(false);
+        value_s.set_visible(true);
+      }
+      Err(e) => {
+        error_s.set_markup(&span(
+          &format!("{} ({})", lang::t("network.dns.invalid"), e),
+          12,
+          "normal",
+          "#FF453A",
+        ));
+        error_s.set_visible(true);
+      }
+    }
+  });
+
+  // Click the value to edit: prefill current servers, or the suggested
+  // defaults when on DHCP.
+  let value_c = value.clone();
+  let entry_c = entry.clone();
+  let hint_c = hint.clone();
+  let error_c = error.clone();
+  let click = gtk::GestureClick::new();
+  click.set_button(1);
+  click.connect_released(move |_, _, _, _| {
+    let state = daemon::dns_get().unwrap_or(daemon::DnsState {
+      servers: Vec::new(),
+      manual: false,
+    });
+    if state.manual && !state.servers.is_empty() {
+      entry_c.set_text(&state.servers.join(", "));
+    } else {
+      entry_c.set_text(DEFAULT_DNS_INPUT);
+    }
+    value_c.set_visible(false);
+    error_c.set_visible(false);
+    entry_c.set_visible(true);
+    hint_c.set_visible(true);
+    entry_c.grab_focus();
+  });
+  value.add_controller(click);
+
+  // Enter saves; leaving the field saves too.
+  let save_enter = Rc::clone(&save);
+  entry.connect_activate(move |_| save_enter());
+  let save_leave = Rc::clone(&save);
+  let focus = gtk::EventControllerFocus::new();
+  focus.connect_leave(move |_| save_leave());
+  entry.add_controller(focus);
+
+  card_box
 }
 
 /// Example on/off row: label on the left, toggle on the right.
@@ -132,27 +291,8 @@ pub(crate) fn build_page() -> gtk::Widget {
   gap.set_size_request(-1, 16);
   detail.append(&gap);
 
-  // DNS server card with an example address on the right.
-  let section = markup_label(&lang::t("network.dns"), 12, "normal", pal.secondary);
-  section.set_halign(gtk::Align::Start);
-  section.set_margin_bottom(2);
-  detail.append(&section);
-
-  let dns_card = card(pal.card);
-  let dns_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-  dns_row.set_hexpand(true);
-  dns_row.set_valign(gtk::Align::Center);
-  dns_row.set_margin_top(5);
-  dns_row.set_margin_bottom(5);
-  let dns_name = markup_label(&lang::t("network.dns"), 13, "normal", pal.fg);
-  dns_name.set_halign(gtk::Align::Start);
-  dns_name.set_hexpand(true);
-  dns_row.append(&dns_name);
-  let dns_value = markup_label(&lang::t("network.dns.detail"), 13, "normal", pal.secondary);
-  dns_value.set_halign(gtk::Align::End);
-  dns_row.append(&dns_value);
-  dns_card.append(&dns_row);
-  detail.append(&dns_card);
+  // DNS card: single big title with click-to-edit value below.
+  detail.append(&build_dns_card(pal.fg, pal.secondary, pal.card));
 
   let gap2 = gtk::Box::new(gtk::Orientation::Vertical, 0);
   gap2.set_size_request(-1, 12);

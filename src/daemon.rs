@@ -1,9 +1,10 @@
 //! Settings daemon client (WiFi domain plus wallpaper, display and OS state).
 //!
 //! Covers the public read ops (`wifi_list`, `wifi_status`,
-//! `wifi_known_list`) and the private write ops (`wifi_connect`,
-//! `wifi_disconnect`, `wifi_enable`, `wifi_disable`, `wifi_forget`)
-//! reserved for this app (`com.tontoo.systemsettings`).
+//! `wifi_known_list`, `dns_get`) and the private write ops
+//! (`wifi_connect`, `wifi_disconnect`, `wifi_enable`, `wifi_disable`,
+//! `wifi_forget`, `dns_set`) reserved for this app
+//! (`com.tontoo.systemsettings`).
 //!
 //! The Wallpaper and Displays pages are daemon-wired: `wallpaper_get`
 //! (public read) loads the full wallpaper state, `wallpaper_set_current`,
@@ -173,6 +174,29 @@ pub fn known_list() -> Result<Vec<KnownNetwork>, String> {
     let result = call("wifi_known_list", serde_json::json!({}))?;
     serde_json::from_value(result.get("networks").cloned().unwrap_or(serde_json::Value::Null))
         .map_err(|e| format!("wifi known list invalid: {}", e))
+}
+
+/// Effective DNS state behind `dns_get` (public). Empty `servers` with
+/// `manual == false` means DHCP (automatic).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct DnsState {
+    #[serde(default)]
+    pub servers: Vec<String>,
+    #[serde(default)]
+    pub manual: bool,
+}
+
+/// Read the effective DNS state (`dns_get`, public).
+pub fn dns_get() -> Result<DnsState, String> {
+    let result = call("dns_get", serde_json::json!({}))?;
+    serde_json::from_value(result).map_err(|e| format!("dns get invalid: {}", e))
+}
+
+/// Apply DNS servers (`dns_set`, private). Comma/whitespace separated
+/// IPv4 addresses; empty clears back to DHCP. Returns the effective state.
+pub fn dns_set(servers: &str) -> Result<DnsState, String> {
+    let result = call("dns_set", serde_json::json!({"servers": servers}))?;
+    serde_json::from_value(result).map_err(|e| format!("dns set invalid: {}", e))
 }
 
 /// Connect to a network (`wifi_connect`, private). Open networks take
@@ -556,8 +580,58 @@ mod tests {
     }
 
     #[test]
-    fn daemon_error_frame_surfaces() {
+    fn dns_get_roundtrip_manual_and_dhcp() {
         let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("dns-get");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result":
+                {"servers": ["1.1.1.1", "8.8.8.8"], "manual": true}}),
+        );
+        let state = dns_get().unwrap();
+        assert_eq!(state.servers, vec!["1.1.1.1", "8.8.8.8"]);
+        assert!(state.manual);
+
+        let path = unique_socket("dns-get-dhcp");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result":
+                {"servers": [], "manual": false}}),
+        );
+        let state = dns_get().unwrap();
+        assert!(state.servers.is_empty());
+        assert!(!state.manual);
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn dns_set_roundtrip_and_error() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("dns-set");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result":
+                {"servers": ["9.9.9.9"], "manual": true}}),
+        );
+        let state = dns_set("9.9.9.9").unwrap();
+        assert_eq!(state.servers, vec!["9.9.9.9"]);
+
+        let path = unique_socket("dns-set-error");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": false, "error": "dns set failed: invalid IPv4 address: nope"}),
+        );
+        let err = dns_set("nope").unwrap_err();
+        assert!(err.contains("invalid IPv4"));
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn daemon_error_frame_surfaces() {        let _guard = ENV_LOCK.lock().unwrap();
         let path = unique_socket("error");
         std::env::set_var("SETTINGS_SOCKET", &path);
         serve_once(

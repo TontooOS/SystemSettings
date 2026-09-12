@@ -32,6 +32,10 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: DNS really works: click-to-edit DNS card (single big
+  title, Enter/focus-out saves, empty means DHCP, `1.1.1.1, 8.8.8.8`
+  suggested) applied system-wide through the daemon (`dns_get`/`dns_set`
+  on the active NetworkManager connection).
 - 2026-09-12: Network page sections sit in cards (header, DNS, VPN,
   Wired Networks) like the other pages.
 - 2026-09-12: Wi-Fi header sits in a card (shared 12px style) like the

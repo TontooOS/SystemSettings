@@ -232,12 +232,20 @@ Tontoo Mouse off, each with an on/off toggle).
 
 Example content (`src/views/network.rs`): header card with the blue `network`
 icon, title, subtitle and a master toggle on the top right (same 1:1
-header layout as Wi-Fi and Bluetooth), then a DNS Server card with an
-example address,
+header layout as Wi-Fi and Bluetooth), then the DNS card,
 a VPN card with an on/off toggle and a Wired Networks card (Ethernet
 on, iPhone USB off, each with an on/off toggle, divider between the
 rows). All cards use the shared style (`pal.card` background, 12px
 radius, `12px 16px` padding).
+
+The DNS card shows the single big `network.dns` title with the effective
+servers (or `network.dns.automatic`) below. Clicking the value turns it
+into a text field prefilled with the current servers (`1.1.1.1, 8.8.8.8`
+when on DHCP); Enter or leaving the field saves through the daemon
+(`dns_set`, empty means DHCP) and the card shows the effective state.
+Invalid input shows `network.dns.invalid` plus the daemon error. The
+daemon applies the servers to the active NetworkManager connection and
+reactivates it, so the change takes effect system-wide immediately.
 
 | Key | en_us | de_de |
 |---|---|---|
@@ -246,6 +254,9 @@ radius, `12px 16px` padding).
 | `network.header.subtitle` | `Manage DNS, VPN and wired connections such as Ethernet or a phone over USB-C.` | `DNS, VPN und kabelgebundene Verbindungen wie Ethernet oder ein Telefon über USB-C verwalten.` |
 | `network.dns` | `DNS Server` | `DNS-Server` |
 | `network.dns.detail` | `192.168.1.1` | `192.168.1.1` |
+| `network.dns.automatic` | `Automatic` | `Automatisch` |
+| `network.dns.hint` | `Empty means automatic (DHCP).` | `Leer bedeutet automatisch (DHCP).` |
+| `network.dns.invalid` | `Enter valid IPv4 addresses, separated by commas.` | `Gültige IPv4-Adressen eingeben, mit Kommas getrennt.` |
 | `network.vpn` | `VPN` | `VPN` |
 | `network.wired.header` | `Wired Networks` | `Kabelnetzwerke` |
 | `network.wired.ethernet` | `Ethernet` | `Ethernet` |
@@ -709,10 +720,10 @@ a Developer Mode toggle (off) plus an API Logs row.
 `src/daemon.rs` wires the app to the settings daemon over its unix socket
 (`SETTINGS_SOCKET` override, else `/run/tontoo-settings.sock`). It covers
 the public read ops (`wifi_list`, `wifi_status`, `wifi_known_list`,
-`wallpaper_get`,
+`dns_get`, `wallpaper_get`,
 `display_get`, `get_os`) and the
 private write ops (`wifi_connect`, `wifi_disconnect`, `wifi_enable`,
-`wifi_disable`, `wifi_forget`, `wallpaper_set_current`,
+`wifi_disable`, `wifi_forget`, `dns_set`, `wallpaper_set_current`,
 `wallpaper_set_fill`, `wallpaper_add`) reserved for this app
 (`com.tontoo.systemsettings`).
 
@@ -724,6 +735,8 @@ pub fn connect(ssid: &str, password: Option<&str>, hidden: bool) -> Result<WifiS
 pub fn disconnect() -> Result<(), String>
 pub fn set_enabled(enabled: bool) -> Result<(), String>
 pub fn forget(ssid: &str) -> Result<bool, String>
+pub fn dns_get() -> Result<DnsState, String>
+pub fn dns_set(servers: &str) -> Result<DnsState, String>
 pub fn wallpaper_get() -> Result<WallpaperState, String>
 pub fn wallpaper_set_current(kind: &str, id: &str) -> Result<Option<WallpaperEntry>, String>
 pub fn wallpaper_set_fill(fill: &str) -> Result<String, String>
