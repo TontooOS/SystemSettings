@@ -2,6 +2,8 @@
   "app.title": "Settings",
   "app.name": "Settings",
   "sidebar.search": "Search",
+  "sidebar.signin.title": "Sign in",
+  "sidebar.signin.subtitle": "with your ink account",
   "sidebar.wifi": "Wi-Fi",
   "sidebar.bluetooth": "Bluetooth",
   "sidebar.network": "Network",

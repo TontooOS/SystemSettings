@@ -32,6 +32,9 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: Sign-in header below the sidebar search (avatar plus
+  bold title and subtitle, display only for now; injected below the
+  search field since the TontooUI Sidebar has no header slot).
 - 2026-09-12: About app count covers `/Applications`, every
   `/Users/*/Applications` and `/System/Applications` (files and
   folders ending in `.app`, symlinks deduplicated).

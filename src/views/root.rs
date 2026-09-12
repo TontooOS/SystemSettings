@@ -523,6 +523,77 @@ impl Default for SettingsRoot {
   }
 }
 
+/// Sign-in header below the sidebar search: avatar plus bold title and
+/// subtitle. Display only for now (no navigation target yet).
+fn signin_row(fg: &str, secondary: &str) -> gtk::Box {
+  let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+  row.set_hexpand(true);
+  row.set_margin_top(6);
+  row.set_margin_bottom(6);
+  row.set_margin_start(10);
+  row.set_margin_end(10);
+  if let Some(avatar_path) = super::sidebar_style_icon_path(
+    "person.crop.circle.fill",
+    "signin",
+    super::BADGE_GRAY,
+  ) {
+    let avatar = gtk::Picture::for_filename(&avatar_path);
+    avatar.set_content_fit(gtk::ContentFit::Cover);
+    avatar.set_hexpand(false);
+    avatar.set_vexpand(false);
+    avatar.set_can_shrink(true);
+    avatar.set_size_request(40, 40);
+    avatar.set_valign(gtk::Align::Center);
+    avatar.add_css_class("signin-avatar");
+    apply_css(&avatar, "picture.signin-avatar { border-radius: 20px; }");
+    row.append(&avatar);
+  }
+  let texts = gtk::Box::new(gtk::Orientation::Vertical, 2);
+  texts.set_hexpand(true);
+  texts.set_valign(gtk::Align::Center);
+  let title = super::markup_label(&lang::t("sidebar.signin.title"), 13, "bold", fg);
+  title.set_halign(gtk::Align::Start);
+  title.set_xalign(0.0);
+  texts.append(&title);
+  let subtitle = super::markup_label(&lang::t("sidebar.signin.subtitle"), 12, "normal", secondary);
+  subtitle.set_halign(gtk::Align::Start);
+  subtitle.set_xalign(0.0);
+  subtitle.set_ellipsize(gtk::pango::EllipsizeMode::End);
+  texts.append(&subtitle);
+  row.append(&texts);
+  row
+}
+
+/// Depth-first search for the sidebar search field.
+fn find_search_entry(widget: &gtk::Widget) -> Option<gtk::SearchEntry> {
+  let mut child = widget.first_child();
+  while let Some(current) = child {
+    if let Ok(entry) = current.clone().downcast::<gtk::SearchEntry>() {
+      return Some(entry);
+    }
+    if let Some(found) = find_search_entry(&current) {
+      return Some(found);
+    }
+    child = current.next_sibling();
+  }
+  None
+}
+
+/// Insert the sign-in header right below the sidebar search field. The
+/// TontooUI Sidebar has no header slot, so the row goes into the built
+/// GTK tree; when the structure is unexpected the row is skipped.
+fn inject_signin(sidebar_gtk: &gtk::Widget, fg: &str, secondary: &str) {
+  let Some(entry) = find_search_entry(sidebar_gtk) else {
+    println!("Sign-in header skipped: search field not found");
+    return;
+  };
+  let Some(parent) = entry.parent().and_then(|w| w.downcast::<gtk::Box>().ok()) else {
+    println!("Sign-in header skipped: search parent is no box");
+    return;
+  };
+  parent.insert_child_after(&signin_row(fg, secondary), Some(&entry));
+}
+
 impl Widget for SettingsRoot {
   fn id(&self) -> WidgetId {
     self.id
@@ -535,12 +606,15 @@ impl Widget for SettingsRoot {
   fn to_gtk(&self) -> gtk::Widget {
     let dark = is_dark();
     let fg = if dark { "#F5F5F7" } else { "#1E1E1E" };
+    let secondary = if dark { "#A1A1A6" } else { "#6E6E73" };
 
     let outer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     outer.set_hexpand(true);
     outer.set_vexpand(true);
 
-    outer.append(&self.sidebar.to_gtk());
+    let sidebar_gtk = self.sidebar.to_gtk();
+    inject_signin(&sidebar_gtk, fg, secondary);
+    outer.append(&sidebar_gtk);
 
     // Detail column: toolbar (back/forward + page title) above the page.
     let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
