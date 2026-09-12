@@ -299,8 +299,9 @@ subtitle) plus grouped row cards — first 3 together (About, Software
 Update, Storage), AirDrop & Handoff alone, next 7 together (AutoFill &
 Passwords through Time Machine), last 2 alone (Device Management,
 Transfer or Reset) — each row with a CoreIcon tile, label and chevron.
-The About row navigates to the hidden About detail page (history
-navigation, back button works); every other row is display only.
+The About row navigates to the hidden About detail page and the Date &
+Time row to the hidden Date & Time page (history navigation, back button
+works); every other row is display only.
 
 ## About page
 
@@ -312,6 +313,28 @@ storage card. All artwork goes through the aspect-kept
 `cached_thumb_fit` pre-scale (`src/views/wallpaper.rs`): `GtkPicture`
 sizes from the texture and ignores size requests, so raw files would
 render at full texture size.
+
+## Date & Time page
+
+`src/views/datetime.rs`: hidden detail page behind the General Date &
+Time row (index 29, reached via history only, title from
+`general.datetime`). Four bare cards like the macOS mockup, no header:
+automatic toggle (locked on for now, insensitive), live date/time
+(`Sep 12, 2026 at 12:56:08 PM`, refreshed every second, 24-hour variant
+without AM/PM), 24-hour toggle (applies through the daemon and
+re-renders) and a searchable timezone dropdown with the real daemon
+zone list (never errors; failures revert the selection and show
+`datetime.tz_failed`). State comes from `datetime_get`; writes go
+through `datetime_set_timezone`/`datetime_set_24h` (`timedatectl`, so
+changes apply system-wide).
+
+| Key | en_us | de_de |
+|---|---|---|
+| `datetime.auto` | `Set time and date automatically` | `Datum und Uhrzeit automatisch einstellen` |
+| `datetime.datetime` | `Date and time` | `Datum und Uhrzeit` |
+| `datetime.use_24h` | `24-hour time` | `24-Stunden-Format` |
+| `datetime.timezone` | `Time Zone` | `Zeitzone` |
+| `datetime.tz_failed` | `Could not set time zone.` | `Zeitzone konnte nicht gesetzt werden.` |
 
 `src/views/about.rs`: hidden detail page behind the General About row
 (index 28, reached via history only, no sidebar entry). Device header
@@ -742,10 +765,11 @@ a Developer Mode toggle (off) plus an API Logs row.
 `src/daemon.rs` wires the app to the settings daemon over its unix socket
 (`SETTINGS_SOCKET` override, else `/run/tontoo-settings.sock`). It covers
 the public read ops (`wifi_list`, `wifi_status`, `wifi_known_list`,
-`dns_get`, `wired_list`, `wallpaper_get`,
+`dns_get`, `wired_list`, `datetime_get`, `wallpaper_get`,
 `display_get`, `get_os`) and the
 private write ops (`wifi_connect`, `wifi_disconnect`, `wifi_enable`,
-`wifi_disable`, `wifi_forget`, `dns_set`, `wallpaper_set_current`,
+`wifi_disable`, `wifi_forget`, `dns_set`, `datetime_set_timezone`,
+`datetime_set_24h`, `wallpaper_set_current`,
 `wallpaper_set_fill`, `wallpaper_add`) reserved for this app
 (`com.tontoo.systemsettings`).
 
@@ -760,6 +784,9 @@ pub fn forget(ssid: &str) -> Result<bool, String>
 pub fn dns_get() -> Result<DnsState, String>
 pub fn dns_set(servers: &str) -> Result<DnsState, String>
 pub fn wired_list() -> Result<Vec<WiredInfo>, String>
+pub fn datetime_get() -> Result<DateTimeState, String>
+pub fn datetime_set_timezone(timezone: &str) -> Result<DateTimeState, String>
+pub fn datetime_set_24h(use_24h: bool) -> Result<DateTimeState, String>
 pub fn wallpaper_get() -> Result<WallpaperState, String>
 pub fn wallpaper_set_current(kind: &str, id: &str) -> Result<Option<WallpaperEntry>, String>
 pub fn wallpaper_set_fill(fill: &str) -> Result<String, String>

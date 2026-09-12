@@ -1,9 +1,10 @@
 //! General settings page for SystemSettings.
 //!
 //! Centered header (gear tile, title, subtitle) plus grouped row cards.
-//! The About row navigates to the hidden About detail page, every other
-//! row is display only. All text uses SF Pro Display and both `en_us`
-//! and `de_de` strings.
+//! The About row navigates to the hidden About detail page, the Date &
+//! Time row to the hidden Date & Time page; every other row is display
+//! only. All text uses SF Pro Display and both `en_us` and `de_de`
+//! strings.
 
 use super::{markup_label, palette, sidebar_style_icon_path};
 use crate::lang;
@@ -98,6 +99,8 @@ fn nav_row(row: &GeneralRow, pal_fg: &str, pal_secondary: &str, last: bool) -> g
 
 /// About detail page index (hidden page, history navigation only).
 pub(crate) const ABOUT_PAGE: usize = 28;
+/// Date & Time detail page index (hidden page, history navigation only).
+pub(crate) const DATETIME_PAGE: usize = 29;
 
 /// The General detail page (directly on the screen). The About row
 /// navigates to the hidden About detail page, every other row is
@@ -157,8 +160,14 @@ pub(crate) fn build_page(nav: &std::sync::Arc<std::sync::Mutex<super::root::NavS
     for (i, row) in ROWS[start..end].iter().enumerate() {
       let row_box = nav_row(row, fg, secondary, i + 1 == end - start);
       // The About row (first row overall) navigates to the hidden About
-      // detail page; every other row is display only.
-      if start + i == 0 {
+      // detail page, the Date & Time row to the hidden Date & Time page;
+      // every other row is display only.
+      let target = match start + i {
+        0 => Some(ABOUT_PAGE),
+        5 => Some(DATETIME_PAGE),
+        _ => None,
+      };
+      if let Some(page) = target {
         if let Some(cursor) = gtk::gdk::Cursor::from_name("pointer", None) {
           row_box.set_cursor(Some(&cursor));
         }
@@ -166,7 +175,7 @@ pub(crate) fn build_page(nav: &std::sync::Arc<std::sync::Mutex<super::root::NavS
         let gesture = gtk::GestureClick::new();
         gesture.connect_released(move |_, _, _, _| {
           if let Ok(mut state) = nav_go.lock() {
-            state.go(ABOUT_PAGE);
+            state.go(page);
           }
         });
         row_box.add_controller(gesture);

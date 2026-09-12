@@ -30,8 +30,10 @@ use std::sync::{Arc, Mutex};
 /// 18 Privacy & Security, 19 Touch ID & Password, 20 Users & Groups,
 /// 21 Internet Accounts, 22 Octo Cloud, 23 Keyboard, 24 Mouse & Trackpad,
 /// 25 Printers, 26 App Settings, 27 Developer, 28 About (hidden detail
-/// page behind the General About row, reached via history only).
-const PAGE_TITLES: [&str; 29] = [
+/// page behind the General About row, reached via history only),
+/// 29 Date & Time (hidden detail page behind the General Date & Time
+/// row, reached via history only).
+const PAGE_TITLES: [&str; 30] = [
   "wifi.title",
   "bluetooth.title",
   "network.title",
@@ -61,10 +63,12 @@ const PAGE_TITLES: [&str; 29] = [
   "app_settings.title",
   "developer.title",
   "about.title",
+  "general.datetime",
 ];
 
 /// Shared back/forward navigation state (Send + Sync for `on_select`).
-/// Page 28 is the hidden About detail (General row, back/forward only).
+/// Page 28 is the hidden About detail (General row, back/forward only),
+/// page 29 the hidden Date & Time detail.
 #[derive(Debug, Default)]
 pub(crate) struct NavState {
   selected: usize,
@@ -153,6 +157,7 @@ pub struct SettingsRoot {
   app_settings_page: gtk::Widget,
   developer_page: gtk::Widget,
   about_page: gtk::Widget,
+  datetime_page: gtk::Widget,
   nav: Arc<Mutex<NavState>>,
 }
 
@@ -188,6 +193,7 @@ fn page_for<'a>(
   app_settings: &'a gtk::Widget,
   developer: &'a gtk::Widget,
   about: &'a gtk::Widget,
+  datetime: &'a gtk::Widget,
 ) -> &'a gtk::Widget {
   match index {
     0 => wifi,
@@ -219,6 +225,7 @@ fn page_for<'a>(
     26 => app_settings,
     27 => developer,
     28 => about,
+    29 => datetime,
     _ => developer,
   }
 }
@@ -261,6 +268,7 @@ impl SettingsRoot {
     let app_settings_page = super::app_settings::build_page();
     let developer_page = super::developer::build_page();
     let about_page = super::about::build_page();
+    let datetime_page = super::datetime::build_page();
 
     // Send + Sync only: records the index, the poller in `to_gtk` swaps.
     let nav_cb = nav.clone();
@@ -512,6 +520,7 @@ impl SettingsRoot {
       app_settings_page,
       developer_page,
       about_page,
+      datetime_page,
       nav,
     }
   }
@@ -743,6 +752,7 @@ impl Widget for SettingsRoot {
       &self.app_settings_page,
       &self.developer_page,
       &self.about_page,
+      &self.datetime_page,
     ));
     column.append(&detail);
     outer.append(&column);
@@ -784,6 +794,7 @@ impl Widget for SettingsRoot {
     let app_settings_poller = self.app_settings_page.clone();
     let developer_poller = self.developer_page.clone();
     let about_poller = self.about_page.clone();
+    let datetime_poller = self.datetime_page.clone();
     let nav_poller = self.nav.clone();
     let fg_poller = fg;
     glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
@@ -831,6 +842,7 @@ impl Widget for SettingsRoot {
           &app_settings_poller,
           &developer_poller,
           &about_poller,
+          &datetime_poller,
         ));
         title_poller.set_markup(&title_markup(want, fg_poller));
       }

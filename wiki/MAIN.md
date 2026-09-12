@@ -32,6 +32,10 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: Date & Time page (General row, hidden index 29): four
+  bare cards (locked-on automatic toggle, live clock, 24-hour toggle,
+  real searchable timezone dropdown) wired to the daemon `timedatectl`
+  backend, changes apply system-wide.
 - 2026-09-12: About icons fixed at display size (aspect-kept
   `cached_thumb_fit` pre-scale; raw textures rendered huge).
 - 2026-09-12: Real wired networks: live connected Ethernet list from

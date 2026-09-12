@@ -15,6 +15,7 @@ pub mod appearance;
 pub mod app_settings;
 pub mod battery;
 pub mod bluetooth;
+pub mod datetime;
 pub mod desktop_dock;
 pub mod developer;
 pub mod displays;

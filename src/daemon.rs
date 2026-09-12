@@ -1,10 +1,10 @@
 //! Settings daemon client (WiFi domain plus wallpaper, display and OS state).
 //!
 //! Covers the public read ops (`wifi_list`, `wifi_status`,
-//! `wifi_known_list`, `dns_get`, `wired_list`) and the private write ops
-//! (`wifi_connect`, `wifi_disconnect`, `wifi_enable`, `wifi_disable`,
-//! `wifi_forget`, `dns_set`) reserved for this app
-//! (`com.tontoo.systemsettings`).
+//! `wifi_known_list`, `dns_get`, `wired_list`, `datetime_get`) and the
+//! private write ops (`wifi_connect`, `wifi_disconnect`, `wifi_enable`,
+//! `wifi_disable`, `wifi_forget`, `dns_set`, `datetime_set_timezone`,
+//! `datetime_set_24h`) reserved for this app (`com.tontoo.systemsettings`).
 //!
 //! The Wallpaper and Displays pages are daemon-wired: `wallpaper_get`
 //! (public read) loads the full wallpaper state, `wallpaper_set_current`,
@@ -228,6 +228,57 @@ pub fn wired_list() -> Result<Vec<WiredInfo>, String> {
             .unwrap_or(serde_json::Value::Null),
     )
     .map_err(|e| format!("wired list invalid: {}", e))
+}
+
+/// Effective date & time state behind `datetime_get` (public).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct DateTimeState {
+    #[serde(default)]
+    pub ntp: bool,
+    #[serde(default)]
+    pub timezone: String,
+    #[serde(default)]
+    pub use_24h: bool,
+    #[serde(default)]
+    pub timezones: Vec<String>,
+}
+
+impl Default for DateTimeState {
+    fn default() -> Self {
+        Self {
+            ntp: true,
+            timezone: "UTC".to_string(),
+            use_24h: false,
+            timezones: vec!["UTC".to_string()],
+        }
+    }
+}
+
+/// Read NTP state, timezone, 24h preference and the zone list
+/// (`datetime_get`, public).
+pub fn datetime_get() -> Result<DateTimeState, String> {
+    let result = call("datetime_get", serde_json::json!({}))?;
+    serde_json::from_value(result).map_err(|e| format!("datetime get invalid: {}", e))
+}
+
+/// Apply a timezone (`datetime_set_timezone`, private). Returns the
+/// effective state.
+pub fn datetime_set_timezone(timezone: &str) -> Result<DateTimeState, String> {
+    let result = call(
+        "datetime_set_timezone",
+        serde_json::json!({"timezone": timezone}),
+    )?;
+    serde_json::from_value(result).map_err(|e| format!("datetime set invalid: {}", e))
+}
+
+/// Persist the 24-hour preference (`datetime_set_24h`, private). Returns
+/// the effective state.
+pub fn datetime_set_24h(use_24h: bool) -> Result<DateTimeState, String> {
+    let result = call(
+        "datetime_set_24h",
+        serde_json::json!({"use_24h": use_24h}),
+    )?;
+    serde_json::from_value(result).map_err(|e| format!("datetime set invalid: {}", e))
 }
 
 /// Connect to a network (`wifi_connect`, private). Open networks take
@@ -684,6 +735,60 @@ mod tests {
         assert_eq!(interfaces[1].connection, "");
         assert_eq!(interfaces[1].gateway, None);
         assert_eq!(interfaces[1].mtu, None);
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn datetime_get_roundtrip_with_defaults() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("datetime-get");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result":
+                {"ntp": true, "timezone": "Europe/Berlin", "use_24h": false,
+                 "timezones": ["Europe/Berlin", "UTC"]}}),
+        );
+        let state = datetime_get().unwrap();
+        assert!(state.ntp);
+        assert_eq!(state.timezone, "Europe/Berlin");
+        assert!(!state.use_24h);
+        assert_eq!(state.timezones.len(), 2);
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn datetime_set_roundtrips_and_errors() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("datetime-tz");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result":
+                {"ntp": true, "timezone": "UTC", "use_24h": false,
+                 "timezones": ["UTC"]}}),
+        );
+        let state = datetime_set_timezone("UTC").unwrap();
+        assert_eq!(state.timezone, "UTC");
+
+        let path = unique_socket("datetime-24h");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result":
+                {"ntp": true, "timezone": "UTC", "use_24h": true,
+                 "timezones": ["UTC"]}}),
+        );
+        assert!(datetime_set_24h(true).unwrap().use_24h);
+
+        let path = unique_socket("datetime-tz-error");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": false, "error": "datetime set failed: unknown timezone"}),
+        );
+        let err = datetime_set_timezone("Mars/Olympus_Mons").unwrap_err();
+        assert!(err.contains("unknown timezone"));
         std::env::remove_var("SETTINGS_SOCKET");
     }
 
