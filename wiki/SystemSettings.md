@@ -245,7 +245,33 @@ subtitle) plus grouped row cards — first 3 together (About, Software
 Update, Storage), AirDrop & Handoff alone, next 7 together (AutoFill &
 Passwords through Time Machine), last 2 alone (Device Management,
 Transfer or Reset) — each row with a CoreIcon tile, label and chevron.
-Display only: rows have no click actions yet.
+The About row navigates to the hidden About detail page (history
+navigation, back button works); every other row is display only.
+
+## About page
+
+`src/views/about.rs`: hidden detail page behind the General About row
+(index 28, reached via history only, no sidebar entry). Device header
+(laptop tile plus hostname), device card (Name, Chip from
+`/proc/cpuinfo`, Memory from `/proc/meminfo`, Linux kernel release,
+installed `.app` count), TontooOS card (versioned OS logo from
+CoreIcon `OSVersionAssets/<version>/TontooOS_Icon.png` with rounded
+corners, daemon display name, dynamic `Version <version>`) and a
+storage card (device plus used/total from `df`, no buttons). All values
+read live with "Unknown" fallbacks; version and codename come from the
+daemon (`get_os`, dynamic, never hardcoded).
+
+| Key | en_us | de_de |
+|---|---|---|
+| `about.title` | `About` | `Über` |
+| `about.name` | `Name` | `Name` |
+| `about.chip` | `Chip` | `Chip` |
+| `about.memory` | `Memory` | `Arbeitsspeicher` |
+| `about.kernel` | `Linux Kernel` | `Linux-Kernel` |
+| `about.apps` | `Apps` | `Apps` |
+| `about.storage` | `Storage` | `Speicher` |
+| `about.unknown` | `Unknown` | `Unbekannt` |
+| `about.version` | `Version` | `Version` |
 
 | Key | en_us | de_de |
 |---|---|---|
@@ -650,7 +676,8 @@ a Developer Mode toggle (off) plus an API Logs row.
 
 `src/daemon.rs` wires the app to the settings daemon over its unix socket
 (`SETTINGS_SOCKET` override, else `/run/tontoo-settings.sock`). It covers
-the public read ops (`wifi_list`, `wifi_status`, `wallpaper_get`) and the
+the public read ops (`wifi_list`, `wifi_status`, `wallpaper_get`,
+`display_get`, `get_os`) and the
 private write ops (`wifi_connect`, `wifi_disconnect`, `wifi_enable`,
 `wifi_disable`, `wifi_forget`, `wallpaper_set_current`,
 `wallpaper_set_fill`, `wallpaper_add`) reserved for this app
@@ -668,6 +695,7 @@ pub fn wallpaper_set_current(kind: &str, id: &str) -> Result<Option<WallpaperEnt
 pub fn wallpaper_set_fill(fill: &str) -> Result<String, String>
 pub fn wallpaper_add(path: &str, name: Option<&str>) -> Result<WallpaperEntry, String>
 pub fn wallpaper_apply(kind: &str, id: &str, variant: &str) -> Result<WallpaperEntry, String>
+pub fn get_os() -> Result<OsInfo, String>
 pub fn display_get() -> Result<DisplayState, String>
 pub fn display_set(output: Option<&str>, width: Option<i32>, height: Option<i32>, refresh: Option<u32>, brightness: Option<f64>, night_light: Option<bool>) -> Result<DisplayState, String>
 ```

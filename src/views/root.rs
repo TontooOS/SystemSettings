@@ -29,8 +29,9 @@ use std::sync::{Arc, Mutex};
 /// 13 Notifications, 14 Sound, 15 Focus, 16 Screen Time, 17 Lock Screen,
 /// 18 Privacy & Security, 19 Touch ID & Password, 20 Users & Groups,
 /// 21 Internet Accounts, 22 Octo Cloud, 23 Keyboard, 24 Mouse & Trackpad,
-/// 25 Printers, 26 App Settings, 27 Developer.
-const PAGE_TITLES: [&str; 28] = [
+/// 25 Printers, 26 App Settings, 27 Developer, 28 About (hidden detail
+/// page behind the General About row, reached via history only).
+const PAGE_TITLES: [&str; 29] = [
   "wifi.title",
   "bluetooth.title",
   "network.title",
@@ -59,18 +60,20 @@ const PAGE_TITLES: [&str; 28] = [
   "printers.title",
   "app_settings.title",
   "developer.title",
+  "about.title",
 ];
 
 /// Shared back/forward navigation state (Send + Sync for `on_select`).
+/// Page 28 is the hidden About detail (General row, back/forward only).
 #[derive(Debug, Default)]
-struct NavState {
+pub(crate) struct NavState {
   selected: usize,
   history: Vec<usize>,
   pos: usize,
 }
 
 impl NavState {
-  fn go(&mut self, index: usize) {
+  pub(crate) fn go(&mut self, index: usize) {
     self.history.truncate(self.pos + 1);
     self.history.push(index);
     self.pos = self.history.len() - 1;
@@ -149,6 +152,7 @@ pub struct SettingsRoot {
   printers_page: gtk::Widget,
   app_settings_page: gtk::Widget,
   developer_page: gtk::Widget,
+  about_page: gtk::Widget,
   nav: Arc<Mutex<NavState>>,
 }
 
@@ -183,6 +187,7 @@ fn page_for<'a>(
   printers: &'a gtk::Widget,
   app_settings: &'a gtk::Widget,
   developer: &'a gtk::Widget,
+  about: &'a gtk::Widget,
 ) -> &'a gtk::Widget {
   match index {
     0 => wifi,
@@ -212,17 +217,26 @@ fn page_for<'a>(
     24 => mouse,
     25 => printers,
     26 => app_settings,
+    27 => developer,
+    28 => about,
     _ => developer,
   }
 }
 
 impl SettingsRoot {
   pub fn new() -> Self {
+    // Navigation state first: General rows navigate programmatically.
+    let nav: Arc<Mutex<NavState>> = Arc::new(Mutex::new(NavState::default()));
+    {
+      let mut state = nav.lock().unwrap();
+      state.go(0);
+    }
+
     let wifi_page = super::wifi::build_page();
     let bluetooth_page = super::bluetooth::build_page();
     let network_page = super::network::build_page();
     let battery_page = super::battery::build_page();
-    let general_page = super::general::build_page();
+    let general_page = super::general::build_page(&nav);
     let accessibility_page = super::accessibility::build_page();
     let appearance_page = super::appearance::build_page();
     let desktop_dock_page = super::desktop_dock::build_page();
@@ -246,13 +260,7 @@ impl SettingsRoot {
     let printers_page = super::printers::build_page();
     let app_settings_page = super::app_settings::build_page();
     let developer_page = super::developer::build_page();
-
-    // Navigation state, shared with the selection handler and poller.
-    let nav: Arc<Mutex<NavState>> = Arc::new(Mutex::new(NavState::default()));
-    {
-      let mut state = nav.lock().unwrap();
-      state.go(0);
-    }
+    let about_page = super::about::build_page();
 
     // Send + Sync only: records the index, the poller in `to_gtk` swaps.
     let nav_cb = nav.clone();
@@ -503,6 +511,7 @@ impl SettingsRoot {
       printers_page,
       app_settings_page,
       developer_page,
+      about_page,
       nav,
     }
   }
@@ -638,6 +647,7 @@ impl Widget for SettingsRoot {
       &self.printers_page,
       &self.app_settings_page,
       &self.developer_page,
+      &self.about_page,
     ));
     column.append(&detail);
     outer.append(&column);
@@ -678,6 +688,7 @@ impl Widget for SettingsRoot {
     let printers_poller = self.printers_page.clone();
     let app_settings_poller = self.app_settings_page.clone();
     let developer_poller = self.developer_page.clone();
+    let about_poller = self.about_page.clone();
     let nav_poller = self.nav.clone();
     let fg_poller = fg;
     glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
@@ -724,6 +735,7 @@ impl Widget for SettingsRoot {
           &printers_poller,
           &app_settings_poller,
           &developer_poller,
+          &about_poller,
         ));
         title_poller.set_markup(&title_markup(want, fg_poller));
       }

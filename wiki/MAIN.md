@@ -32,6 +32,11 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: About detail page (hidden page behind the General About
+  row, history navigation): live hostname, processor, memory, kernel
+  and app count, TontooOS card with versioned CoreIcon logo and dynamic
+  version/codename from the daemon (`get_os`), storage used/total, no
+  buttons. General About row navigates there.
 - 2026-09-12: About row uses the plain `questionmark` icon.
 - 2026-09-11: General rows grouped into cards (first 3 together,
   AirDrop alone, next 7 together, last 2 alone).

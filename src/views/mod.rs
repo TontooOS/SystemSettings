@@ -10,6 +10,7 @@
 //! Shared helpers (palette, labels, CoreIcon rendering) live here.
 
 pub mod accessibility;
+pub mod about;
 pub mod appearance;
 pub mod app_settings;
 pub mod battery;

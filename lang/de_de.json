@@ -207,5 +207,14 @@
   "developer.header.subtitle": "Werkzeuge für Entwickler.",
   "developer.mode": "Entwicklermodus",
   "developer.api_logs": "API-Protokolle",
-  "developer.api_logs.detail": "Minimal"
+  "developer.api_logs.detail": "Minimal",
+  "about.title": "Über",
+  "about.name": "Name",
+  "about.chip": "Chip",
+  "about.memory": "Arbeitsspeicher",
+  "about.kernel": "Linux-Kernel",
+  "about.apps": "Apps",
+  "about.storage": "Speicher",
+  "about.unknown": "Unbekannt",
+  "about.version": "Version"
 }

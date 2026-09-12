@@ -1,11 +1,9 @@
 //! General settings page for SystemSettings.
 //!
-//! Centered header (gear tile, title, subtitle) plus one card per row
-//! (About, Software Update, Storage, AirDrop & Handoff, AutoFill &
-//! Passwords, Date & Time, Language & Region, Login Items & Extensions,
-//! Sharing, Startup Disk, Time Machine, Device Management, Transfer or
-//! Reset). Display only: rows have no click actions yet. All text uses
-//! SF Pro Display and both `en_us` and `de_de` strings.
+//! Centered header (gear tile, title, subtitle) plus grouped row cards.
+//! The About row navigates to the hidden About detail page, every other
+//! row is display only. All text uses SF Pro Display and both `en_us`
+//! and `de_de` strings.
 
 use super::{markup_label, palette, sidebar_style_icon_path};
 use crate::lang;
@@ -98,8 +96,13 @@ fn nav_row(row: &GeneralRow, pal_fg: &str, pal_secondary: &str, last: bool) -> g
   inner
 }
 
- /// The General detail page (directly on the screen).
-pub(crate) fn build_page() -> gtk::Widget {
+/// About detail page index (hidden page, history navigation only).
+pub(crate) const ABOUT_PAGE: usize = 28;
+
+/// The General detail page (directly on the screen). The About row
+/// navigates to the hidden About detail page, every other row is
+/// display only.
+pub(crate) fn build_page(nav: &std::sync::Arc<std::sync::Mutex<super::root::NavState>>) -> gtk::Widget {
   let pal = palette(super::is_dark());
   let fg: &'static str = pal.fg;
   let secondary: &'static str = pal.secondary;
@@ -152,7 +155,23 @@ pub(crate) fn build_page() -> gtk::Widget {
   for (start, end) in bounds {
     let card = card(pal.card);
     for (i, row) in ROWS[start..end].iter().enumerate() {
-      card.append(&nav_row(row, fg, secondary, i + 1 == end - start));
+      let row_box = nav_row(row, fg, secondary, i + 1 == end - start);
+      // The About row (first row overall) navigates to the hidden About
+      // detail page; every other row is display only.
+      if start + i == 0 {
+        if let Some(cursor) = gtk::gdk::Cursor::from_name("pointer", None) {
+          row_box.set_cursor(Some(&cursor));
+        }
+        let nav_go = nav.clone();
+        let gesture = gtk::GestureClick::new();
+        gesture.connect_released(move |_, _, _, _| {
+          if let Ok(mut state) = nav_go.lock() {
+            state.go(ABOUT_PAGE);
+          }
+        });
+        row_box.add_controller(gesture);
+      }
+      card.append(&row_box);
     }
     detail.append(&card);
   }

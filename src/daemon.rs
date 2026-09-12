@@ -262,6 +262,57 @@ pub fn wallpaper_apply(kind: &str, id: &str, variant: &str) -> Result<WallpaperE
     serde_json::from_value(result).map_err(|e| format!("wallpaper apply invalid: {}", e))
 }
 
+/// OS identity facts behind `get_os` (mirrors the daemon `OsInfo`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct OsInfo {
+    #[serde(default = "default_os_name")]
+    pub name: String,
+    #[serde(default = "default_os_display_name")]
+    pub display_name: String,
+    #[serde(default = "default_os_codename")]
+    pub codename: String,
+    #[serde(default = "default_os_version")]
+    pub version: String,
+    #[serde(default)]
+    pub beta: bool,
+}
+
+fn default_os_name() -> String {
+    "TontooOS".to_string()
+}
+
+fn default_os_display_name() -> String {
+    "TontooOS".to_string()
+}
+
+fn default_os_codename() -> String {
+    "Seal".to_string()
+}
+
+fn default_os_version() -> String {
+    "26.1.0".to_string()
+}
+
+impl Default for OsInfo {
+    fn default() -> Self {
+        Self {
+            name: default_os_name(),
+            display_name: default_os_display_name(),
+            codename: default_os_codename(),
+            version: default_os_version(),
+            beta: false,
+        }
+    }
+}
+
+/// Read the OS identity (`get_os`, public). Falls back to compiled
+/// defaults when the daemon is unreachable.
+pub fn get_os() -> Result<OsInfo, String> {
+    let result = call("get_os", serde_json::json!({}))?;
+    serde_json::from_value(result.get("os").cloned().unwrap_or(serde_json::Value::Null))
+        .map_err(|e| format!("os info invalid: {}", e))
+}
+
 /// One output mode: resolution plus refresh rate in Hz.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct DisplayMode {
@@ -498,6 +549,39 @@ mod tests {
         );
         let err = wallpaper_add("/tmp/missing.png", None).unwrap_err();
         assert!(err.contains("file not found"));
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn get_os_roundtrip_with_defaults() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("get-os");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result":
+                {"os": {"name": "TontooOS", "display_name": "TontooOS Seal",
+                        "codename": "Seal", "version": "26.1.0", "beta": false}}}),
+        );
+        let info = get_os().unwrap();
+        assert_eq!(info.display_name, "TontooOS Seal");
+        assert_eq!(info.codename, "Seal");
+        assert_eq!(info.version, "26.1.0");
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn get_os_missing_fields_fall_back_to_defaults() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("get-os-partial");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result": {"os": {"version": "27.0.0"}}}),
+        );
+        let info = get_os().unwrap();
+        assert_eq!(info.version, "27.0.0");
+        assert_eq!(info.codename, "Seal");
         std::env::remove_var("SETTINGS_SOCKET");
     }
 
