@@ -254,10 +254,12 @@ navigation, back button works); every other row is display only.
 (index 28, reached via history only, no sidebar entry). Device header
 (laptop tile plus hostname), device card (Name, Chip from
 `/proc/cpuinfo`, Memory from `/proc/meminfo`, Linux kernel release,
-installed `.app` count), TontooOS card (versioned OS logo from
-CoreIcon `OSVersionAssets/<version>/TontooOS_Icon.png` with rounded
-corners, daemon display name, dynamic `Version <version>`) and a
-storage card (device plus used/total from `df`, no buttons). All values
+installed app count from `/Applications`, every
+`/Users/*/Applications` and `/System/Applications` — files and folders
+ending in `.app`, symlinks deduplicated), TontooOS card (versioned OS
+logo from CoreIcon `OSVersionAssets/<version>/TontooOS_Icon.png` with
+rounded corners, daemon display name, dynamic `Version <version>`) and
+a storage card (device plus used/total from `df`, no buttons). All values
 read live with "Unknown" fallbacks; version and codename come from the
 daemon (`get_os`, dynamic, never hardcoded).
 

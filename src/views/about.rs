@@ -113,7 +113,31 @@ fn human_unit(value: f64, unit: &str) -> String {
 
 /// Installed `.app` bundles below the given directories.
 pub(crate) fn apps_in(dirs: &[&std::path::Path]) -> usize {
-  let mut count = 0;
+  collect_apps(&dirs.iter().map(std::path::PathBuf::from).collect::<Vec<_>>()).len()
+}
+
+/// Per-user application folders (`<user>/Applications`) below a users
+/// root (`/Users`), one per directory entry.
+pub(crate) fn user_app_dirs(users_root: &std::path::Path) -> Vec<std::path::PathBuf> {
+  let mut dirs = Vec::new();
+  let entries = match std::fs::read_dir(users_root) {
+    Ok(entries) => entries,
+    Err(_) => return dirs,
+  };
+  for entry in entries.flatten() {
+    let path = entry.path().join("Applications");
+    if path.is_dir() {
+      dirs.push(path);
+    }
+  }
+  dirs.sort();
+  dirs
+}
+
+/// Files and folders ending in `.app`, deduplicated by canonical path so
+/// symlinked bundles (e.g. system links below `/Applications`) count once.
+pub(crate) fn collect_apps(dirs: &[std::path::PathBuf]) -> Vec<std::path::PathBuf> {
+  let mut seen = std::collections::HashSet::new();
   for dir in dirs {
     let entries = match std::fs::read_dir(dir) {
       Ok(entries) => entries,
@@ -121,14 +145,33 @@ pub(crate) fn apps_in(dirs: &[&std::path::Path]) -> usize {
     };
     for entry in entries.flatten() {
       let path = entry.path();
-      if path.is_dir()
-        && path.extension().and_then(|e| e.to_str()) == Some("app")
-      {
-        count += 1;
+      let is_app = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.ends_with(".app"))
+        .unwrap_or(false);
+      if !is_app {
+        continue;
       }
+      seen.insert(
+        std::fs::canonicalize(&path).unwrap_or(path),
+      );
     }
   }
-  count
+  let mut out: Vec<std::path::PathBuf> = seen.into_iter().collect();
+  out.sort();
+  out
+}
+
+/// Live installed app count: `/Applications`, every user's
+/// `~/Applications` below `/Users`, plus `/System/Applications`.
+pub(crate) fn apps_live() -> usize {
+  let mut dirs = vec![
+    std::path::PathBuf::from("/Applications"),
+    std::path::PathBuf::from("/System/Applications"),
+  ];
+  dirs.extend(user_app_dirs(std::path::Path::new("/Users")));
+  collect_apps(&dirs).len()
 }
 
 /// `(source, used, total)` for `/` from `df -B1` output, if parseable.
@@ -288,10 +331,7 @@ pub(crate) fn build_page() -> gtk::Widget {
   let processor = processor_in(std::path::Path::new("/proc/cpuinfo"));
   let memory = memory_in(std::path::Path::new("/proc/meminfo"));
   let kernel = kernel_in(std::path::Path::new("/proc/sys/kernel/osrelease"));
-  let apps = apps_in(&[
-    std::path::Path::new("/Applications"),
-    std::path::Path::new("/System/Applications"),
-  ]);
+  let apps = apps_live();
   let device_card = card(pal.card);
   let device_rows = [
     (lang::t("about.name"), none_if_empty(&hostname, &unknown)),
@@ -428,15 +468,37 @@ mod tests {
   }
 
   #[test]
-  fn apps_counts_bundles_only() {
+  fn apps_counts_files_and_folders_once() {
     let dir = std::env::temp_dir().join("systemsettings-apps-test");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("Terminal.app")).unwrap();
+    std::fs::write(dir.join("Tool.app"), b"x").unwrap();
     std::fs::create_dir_all(dir.join("Notes")).unwrap();
     std::fs::write(dir.join("readme.txt"), b"x").unwrap();
-    assert_eq!(apps_in(&[&dir]), 1);
-    assert_eq!(apps_in(&[std::path::Path::new("/nonexistent-about-test")]), 0);
+    // Symlinked bundle counts once (system-wide links).
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(dir.join("Terminal.app"), dir.join("TermLink.app")).unwrap();
+    let found = collect_apps(&[dir.clone()]);
+    // Terminal.app dir + Tool.app file; the TermLink.app symlink resolves
+    // to Terminal.app and counts once.
+    assert_eq!(found.len(), 2);
+    assert_eq!(apps_in(&[dir.as_path()]), 2);
     let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn user_app_dirs_lists_per_user_folders() {
+    let root = std::env::temp_dir().join("systemsettings-users-test");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("tontoo").join("Applications")).unwrap();
+    std::fs::create_dir_all(root.join("guest")).unwrap();
+    std::fs::write(root.join("stray.txt"), b"x").unwrap();
+    assert_eq!(
+      user_app_dirs(&root),
+      vec![root.join("tontoo").join("Applications")]
+    );
+    assert!(user_app_dirs(std::path::Path::new("/nonexistent-about-test")).is_empty());
+    let _ = std::fs::remove_dir_all(&root);
   }
 
   #[test]

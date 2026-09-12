@@ -32,6 +32,9 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: About app count covers `/Applications`, every
+  `/Users/*/Applications` and `/System/Applications` (files and
+  folders ending in `.app`, symlinks deduplicated).
 - 2026-09-12: About images fixed-size with rounder corners (device
   tile, OS logo and drive icon render via fixed `Picture`, never
   scaling with the window; logo radius 24px).
