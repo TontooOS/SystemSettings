@@ -25,6 +25,14 @@ pub(crate) fn bundled_logo() -> String {
   )
 }
 
+/// Bundled device artwork (`Resources/laptop.png`).
+pub(crate) fn laptop_png() -> String {
+  format!(
+    "{}/Resources/laptop.png",
+    env!("CARGO_MANIFEST_DIR")
+  )
+}
+
 /// OS logo for a version: CoreIcon version asset (`TontooOS_Icon.png`
 /// for the matching version), else the bundled logo, else nothing.
 pub(crate) fn os_logo_for_version(version: &str) -> Option<String> {
@@ -300,11 +308,17 @@ pub(crate) fn build_page() -> gtk::Widget {
   detail.set_margin_start(24);
   detail.set_margin_end(24);
 
-  // Device header: laptop icon plus hostname.
+  // Device header: laptop artwork plus hostname.
   let hostname = hostname_in(std::path::Path::new("/etc/hostname"));
   let header = gtk::Box::new(gtk::Orientation::Vertical, 8);
   header.set_hexpand(true);
-  if let Some(icon_path) =
+  let laptop = laptop_png();
+  if std::path::Path::new(&laptop).is_file() {
+    if let Some(icon) = fixed_picture(&laptop, DEVICE_ICON_PX, 16, "about-device") {
+      icon.set_halign(gtk::Align::Center);
+      header.append(&icon);
+    }
+  } else if let Some(icon_path) =
     sidebar_style_icon_path("laptopcomputer", "about-device", DEVICE_GRAY)
   {
     if let Some(icon) = fixed_picture(&icon_path, DEVICE_ICON_PX, 16, "about-device") {
@@ -527,5 +541,10 @@ mod tests {
     let fallback = os_logo_for_version("0.0.0-missing");
     assert!(fallback.is_some());
     let _ = std::fs::remove_dir_all(&base);
+  }
+
+  #[test]
+  fn laptop_artwork_resolves_to_resources() {
+    assert!(laptop_png().ends_with("Resources/laptop.png"));
   }
 }

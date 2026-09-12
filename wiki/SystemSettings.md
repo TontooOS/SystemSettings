@@ -293,9 +293,15 @@ navigation, back button works); every other row is display only.
 
 ## About page
 
+Device header with the bundled `Resources/laptop.png` artwork (64px,
+rounded, `laptop_png`; falls back to the gray `laptopcomputer` SF tile
+when the file is missing) plus the hostname, followed by the device
+card (name, chip, memory, kernel, app count), the TontooOS card and the
+storage card.
+
 `src/views/about.rs`: hidden detail page behind the General About row
 (index 28, reached via history only, no sidebar entry). Device header
-(laptop tile plus hostname), device card (Name, Chip from
+(bundled laptop artwork plus hostname), device card (Name, Chip from
 `/proc/cpuinfo`, Memory from `/proc/meminfo`, Linux kernel release,
 installed app count from `/Applications`, every
 `/Users/*/Applications` and `/System/Applications` — files and folders
