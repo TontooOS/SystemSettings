@@ -26,7 +26,7 @@ app.run();
 SF Symbols on a solid blue fill (`Color::from_rgb(0, 122, 255)`), so
 CoreIcon generates the icon PNGs at render time. A sign-in header
 (avatar plus `sidebar.signin.title`/`sidebar.signin.subtitle`, display
-only) is injected below the search field at `to_gtk` time, since the
+only) is injected above the search field at `to_gtk` time, since the
 Sidebar widget has no header slot.
 
 | Method | Value |
