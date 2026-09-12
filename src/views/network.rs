@@ -1,14 +1,13 @@
 //! Network settings page for SystemSettings.
 //!
-//! Header plus DNS card (click-to-edit, applied system-wide through the
-//! daemon) and example wired rows (Ethernet, phone over USB-C) with
-//! on/off toggles. All text uses SF Pro Display and both `en_us` and
-//! `de_de` strings.
+//! Header, DNS card (click-to-edit, applied system-wide through the
+//! daemon) and the live wired list from the daemon: connected Ethernet
+//! interfaces with a "..." menu button opening an info popover. All text
+//! uses SF Pro Display and both `en_us` and `de_de` strings.
 
 use super::{WIFI_BLUE, is_dark, markup_label, palette, sidebar_style_icon_path};
 use crate::daemon;
 use crate::lang;
-use crate::TontooUI::Toggle;
 use crate::UIKit::prelude::*;
 use gtk::prelude::*;
 use std::rc::Rc;
@@ -200,34 +199,118 @@ fn build_dns_card(fg: &'static str, secondary: &'static str, card_color: &str) -
   card_box
 }
 
-/// Example on/off row: label on the left, toggle on the right.
-fn toggle_row(
-  label_key: &str,
-  on: bool,
-  log_line: &'static str,
-  pal_fg: &str,
-  last: bool,
-) -> gtk::Box {
+/// One info line in the wired popover: secondary label left, value right.
+fn info_line(label_key: &str, value: &str, pal_fg: &str, pal_secondary: &str) -> gtk::Box {
+  let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+  row.set_hexpand(true);
+  row.set_margin_top(2);
+  row.set_margin_bottom(2);
+  let label = markup_label(&lang::t(label_key), 12, "normal", pal_secondary);
+  label.set_halign(gtk::Align::Start);
+  label.set_xalign(0.0);
+  label.set_hexpand(true);
+  row.append(&label);
+  let detail = markup_label(value, 12, "normal", pal_fg);
+  detail.set_halign(gtk::Align::End);
+  detail.set_xalign(1.0);
+  detail.set_ellipsize(gtk::pango::EllipsizeMode::End);
+  detail.set_max_width_chars(28);
+  row.append(&detail);
+  row
+}
+
+/// Popover content for one interface: every known detail, unknown fields
+/// skipped.
+fn wired_info_box(info: &daemon::WiredInfo, pal_fg: &str, pal_secondary: &str) -> gtk::Box {
+  let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
+  list.set_hexpand(true);
+  list.set_margin_top(8);
+  list.set_margin_bottom(8);
+  list.set_margin_start(12);
+  list.set_margin_end(12);
+  let mut lines: Vec<(String, String)> = vec![
+    (
+      "network.wired.info.interface".to_string(),
+      info.interface.clone(),
+    ),
+    (
+      "network.wired.info.connection".to_string(),
+      info.connection.clone(),
+    ),
+  ];
+  if !info.state.is_empty() {
+    lines.push(("network.wired.info.state".to_string(), info.state.clone()));
+  }
+  if !info.ipv4_addrs.is_empty() {
+    lines.push((
+      "network.wired.info.ip".to_string(),
+      info.ipv4_addrs.join(", "),
+    ));
+  }
+  if let Some(gateway) = &info.gateway {
+    lines.push(("network.wired.info.gateway".to_string(), gateway.clone()));
+  }
+  if !info.mac.is_empty() {
+    lines.push(("network.wired.info.mac".to_string(), info.mac.clone()));
+  }
+  if let Some(speed) = info.speed_mbps {
+    lines.push((
+      "network.wired.info.speed".to_string(),
+      format!("{} Mb/s", speed),
+    ));
+  }
+  if let Some(mtu) = info.mtu {
+    lines.push(("network.wired.info.mtu".to_string(), mtu.to_string()));
+  }
+  if let Some(driver) = &info.driver {
+    lines.push(("network.wired.info.driver".to_string(), driver.clone()));
+  }
+  for (key, value) in &lines {
+    list.append(&info_line(key, value, pal_fg, pal_secondary));
+  }
+  list
+}
+
+/// One live wired row: connection name plus a "..." menu button opening
+/// the info popover.
+fn wired_row(info: &daemon::WiredInfo, pal_fg: &str, pal_secondary: &str, last: bool) -> gtk::Box {
   let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
   row.set_hexpand(true);
+  row.set_valign(gtk::Align::Center);
   row.set_margin_top(5);
   row.set_margin_bottom(5);
 
-  let name = markup_label(&lang::t(label_key), 13, "normal", pal_fg);
+  let names = gtk::Box::new(gtk::Orientation::Vertical, 1);
+  names.set_hexpand(true);
+  names.set_valign(gtk::Align::Center);
+  let name = markup_label(
+    if info.connection.is_empty() {
+      &info.interface
+    } else {
+      &info.connection
+    },
+    13,
+    "normal",
+    pal_fg,
+  );
   name.set_halign(gtk::Align::Start);
   name.set_xalign(0.0);
-  name.set_hexpand(true);
   name.set_ellipsize(gtk::pango::EllipsizeMode::End);
-  row.append(&name);
+  names.append(&name);
+  let iface = markup_label(&info.interface, 12, "normal", pal_secondary);
+  iface.set_halign(gtk::Align::Start);
+  iface.set_xalign(0.0);
+  names.append(&iface);
+  row.append(&names);
 
-  let toggle = Toggle::new("").value(on).width(52.0).on_change(move |on| {
-    println!("{} toggled: {}", log_line, on);
-  });
-  let toggle_gtk = toggle.to_gtk();
-  toggle_gtk.set_halign(gtk::Align::End);
-  toggle_gtk.set_valign(gtk::Align::Center);
-  toggle_gtk.set_vexpand(false);
-  row.append(&toggle_gtk);
+  let menu = gtk::MenuButton::new();
+  menu.set_halign(gtk::Align::End);
+  menu.set_valign(gtk::Align::Center);
+  menu.set_child(Some(&markup_label("…", 15, "bold", pal_secondary)));
+  let popover = gtk::Popover::new();
+  popover.set_child(Some(&wired_info_box(info, pal_fg, pal_secondary)));
+  menu.set_popover(Some(&popover));
+  row.append(&menu);
 
   if !last {
     crate::UIKit::apply_css(
@@ -297,7 +380,8 @@ pub(crate) fn build_page() -> gtk::Widget {
   gap2.set_size_request(-1, 12);
   detail.append(&gap2);
 
-  // Wired networks: physical links with on/off toggles.
+  // Wired networks: live connected interfaces from the daemon, each
+  // with a "..." menu button for the info popover.
   let wired = markup_label(
     &lang::t("network.wired.header"),
     12,
@@ -308,25 +392,25 @@ pub(crate) fn build_page() -> gtk::Widget {
   wired.set_margin_bottom(2);
   detail.append(&wired);
 
-  let wired_card = card(pal.card);
-  let wired_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  wired_box.set_hexpand(true);
-  wired_box.append(&toggle_row(
-    "network.wired.ethernet",
-    true,
-    "Ethernet",
-    pal.fg,
-    false,
-  ));
-  wired_box.append(&toggle_row(
-    "network.wired.iphone",
-    false,
-    "iPhone USB",
-    pal.fg,
-    true,
-  ));
-  wired_card.append(&wired_box);
-  detail.append(&wired_card);
+  match daemon::wired_list() {
+    Ok(interfaces) if !interfaces.is_empty() => {
+      let wired_card = card(pal.card);
+      let wired_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+      wired_box.set_hexpand(true);
+      let last = interfaces.len() - 1;
+      for (index, info) in interfaces.iter().enumerate() {
+        wired_box.append(&wired_row(info, pal.fg, pal.secondary, index == last));
+      }
+      wired_card.append(&wired_box);
+      detail.append(&wired_card);
+    }
+    _ => {
+      let none = markup_label(&lang::t("network.wired.none"), 13, "normal", pal.secondary);
+      none.set_halign(gtk::Align::Start);
+      none.set_xalign(0.0);
+      detail.append(&none);
+    }
+  }
 
   detail.upcast()
 }

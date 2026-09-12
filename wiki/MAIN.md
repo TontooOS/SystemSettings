@@ -32,6 +32,10 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: Real wired networks: live connected Ethernet list from
+  `wired_list` with a "..." info popover (connection, IPs, MAC, speed,
+  MTU, driver); note when none connected; unused VPN/example keys
+  removed.
 - 2026-09-12: About device header uses the bundled
   `Resources/laptop.png` artwork (SF tile fallback).
 - 2026-09-12: Network page without VPN card and without header toggle.

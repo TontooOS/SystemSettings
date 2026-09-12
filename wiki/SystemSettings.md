@@ -232,9 +232,13 @@ Tontoo Mouse off, each with an on/off toggle).
 
 Example content (`src/views/network.rs`): header card with the blue `network`
 icon, title and subtitle (same 1:1 header layout as Wi-Fi and Bluetooth,
-without a toggle), then the DNS card and a Wired Networks card (Ethernet
-on, iPhone USB off, each with an on/off toggle, divider between the
-rows). All cards use the shared style (`pal.card` background, 12px
+without a toggle), then the DNS card and the live Wired Networks card
+(connected Ethernet interfaces from the daemon `wired_list`, each row
+with the connection name, the interface below and a "..." menu button
+opening an info popover: interface, connection, state, IP addresses,
+gateway, MAC, speed, MTU, driver — unknown fields skipped; without
+connected interfaces the `network.wired.none` note shows instead). All
+cards use the shared style (`pal.card` background, 12px
 radius, `12px 16px` padding).
 
 The DNS card shows the single big `network.dns` title with the effective
@@ -259,10 +263,17 @@ reactivates it, so the change takes effect system-wide immediately.
 | `network.dns.hint` | `Empty means automatic (DHCP).` | `Leer bedeutet automatisch (DHCP).` |
 | `network.dns.invalid` | `Enter valid IPv4 addresses, separated by commas.` | `Gültige IPv4-Adressen eingeben, mit Kommas getrennt.` |
 | `network.dns.unavailable` | `DNS cannot be changed here (NetworkManager required).` | `DNS kann hier nicht geändert werden (NetworkManager erforderlich).` |
-| `network.vpn` | `VPN` | `VPN` |
 | `network.wired.header` | `Wired Networks` | `Kabelnetzwerke` |
-| `network.wired.ethernet` | `Ethernet` | `Ethernet` |
-| `network.wired.iphone` | `iPhone USB` | `iPhone-USB` |
+| `network.wired.none` | `No wired connection` | `Keine Kabelverbindung` |
+| `network.wired.info.interface` | `Interface` | `Schnittstelle` |
+| `network.wired.info.connection` | `Connection` | `Verbindung` |
+| `network.wired.info.state` | `Status` | `Status` |
+| `network.wired.info.ip` | `IP Address` | `IP-Adresse` |
+| `network.wired.info.gateway` | `Gateway` | `Gateway` |
+| `network.wired.info.mac` | `MAC Address` | `MAC-Adresse` |
+| `network.wired.info.speed` | `Speed` | `Geschwindigkeit` |
+| `network.wired.info.mtu` | `MTU` | `MTU` |
+| `network.wired.info.driver` | `Driver` | `Treiber` |
 
 ## Battery page
 
@@ -728,7 +739,7 @@ a Developer Mode toggle (off) plus an API Logs row.
 `src/daemon.rs` wires the app to the settings daemon over its unix socket
 (`SETTINGS_SOCKET` override, else `/run/tontoo-settings.sock`). It covers
 the public read ops (`wifi_list`, `wifi_status`, `wifi_known_list`,
-`dns_get`, `wallpaper_get`,
+`dns_get`, `wired_list`, `wallpaper_get`,
 `display_get`, `get_os`) and the
 private write ops (`wifi_connect`, `wifi_disconnect`, `wifi_enable`,
 `wifi_disable`, `wifi_forget`, `dns_set`, `wallpaper_set_current`,
@@ -745,6 +756,7 @@ pub fn set_enabled(enabled: bool) -> Result<(), String>
 pub fn forget(ssid: &str) -> Result<bool, String>
 pub fn dns_get() -> Result<DnsState, String>
 pub fn dns_set(servers: &str) -> Result<DnsState, String>
+pub fn wired_list() -> Result<Vec<WiredInfo>, String>
 pub fn wallpaper_get() -> Result<WallpaperState, String>
 pub fn wallpaper_set_current(kind: &str, id: &str) -> Result<Option<WallpaperEntry>, String>
 pub fn wallpaper_set_fill(fill: &str) -> Result<String, String>

@@ -1,7 +1,7 @@
 //! Settings daemon client (WiFi domain plus wallpaper, display and OS state).
 //!
 //! Covers the public read ops (`wifi_list`, `wifi_status`,
-//! `wifi_known_list`, `dns_get`) and the private write ops
+//! `wifi_known_list`, `dns_get`, `wired_list`) and the private write ops
 //! (`wifi_connect`, `wifi_disconnect`, `wifi_enable`, `wifi_disable`,
 //! `wifi_forget`, `dns_set`) reserved for this app
 //! (`com.tontoo.systemsettings`).
@@ -197,6 +197,37 @@ pub fn dns_get() -> Result<DnsState, String> {
 pub fn dns_set(servers: &str) -> Result<DnsState, String> {
     let result = call("dns_set", serde_json::json!({"servers": servers}))?;
     serde_json::from_value(result).map_err(|e| format!("dns set invalid: {}", e))
+}
+
+/// One connected wired interface with details (`wired_list`, public).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct WiredInfo {
+    #[serde(default)]
+    pub interface: String,
+    #[serde(default)]
+    pub connection: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub ipv4_addrs: Vec<String>,
+    pub gateway: Option<String>,
+    pub speed_mbps: Option<u32>,
+    pub mtu: Option<u32>,
+    pub driver: Option<String>,
+    #[serde(default)]
+    pub mac: String,
+}
+
+/// Connected Ethernet interfaces with details (`wired_list`, public).
+pub fn wired_list() -> Result<Vec<WiredInfo>, String> {
+    let result = call("wired_list", serde_json::json!({}))?;
+    serde_json::from_value(
+        result
+            .get("interfaces")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+    )
+    .map_err(|e| format!("wired list invalid: {}", e))
 }
 
 /// Connect to a network (`wifi_connect`, private). Open networks take
@@ -627,6 +658,32 @@ mod tests {
         );
         let err = dns_set("nope").unwrap_err();
         assert!(err.contains("invalid IPv4"));
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn wired_list_roundtrip_with_optional_details() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("wired-list");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result": {"interfaces": [
+                {"interface": "eth0", "connection": "Wired connection 1",
+                 "state": "connected", "ipv4_addrs": ["192.168.1.5"],
+                 "gateway": "192.168.1.1", "mac": "aa:bb:cc:dd:ee:ff",
+                 "speed_mbps": 1000, "mtu": 1500, "driver": "e1000e"},
+                {"interface": "eth1"},
+            ]}}),
+        );
+        let interfaces = wired_list().unwrap();
+        assert_eq!(interfaces.len(), 2);
+        assert_eq!(interfaces[0].interface, "eth0");
+        assert_eq!(interfaces[0].ipv4_addrs, vec!["192.168.1.5"]);
+        assert_eq!(interfaces[0].speed_mbps, Some(1000));
+        assert_eq!(interfaces[1].connection, "");
+        assert_eq!(interfaces[1].gateway, None);
+        assert_eq!(interfaces[1].mtu, None);
         std::env::remove_var("SETTINGS_SOCKET");
     }
 
