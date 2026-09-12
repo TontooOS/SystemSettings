@@ -28,7 +28,7 @@ pub(crate) struct GeneralRow {
 
 /// Rows in mockup order, each rendered as its own card.
 pub(crate) const ROWS: &[GeneralRow] = &[
-  GeneralRow { key: "general.about", symbol: "questionmark.circle.fill", color: WIFI_BLUE },
+  GeneralRow { key: "general.about", symbol: "questionmark", color: WIFI_BLUE },
   GeneralRow { key: "general.software_update", symbol: "arrow.triangle.2.circlepath", color: WIFI_BLUE },
   GeneralRow { key: "general.storage", symbol: "internaldrive.fill", color: BADGE_GRAY },
   GeneralRow { key: "general.airdrop", symbol: "square.and.arrow.up", color: BADGE_GRAY },
