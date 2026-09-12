@@ -104,18 +104,41 @@ toggle.
 | `wifi.join.connect` | `Connect` | `Verbinden` |
 | `wifi.join.cancel` | `Cancel` | `Abbrechen` |
 | `wifi.join.password_required` | `Password required.` | `Passwort erforderlich.` |
+| `wifi.known.header` | `Known Networks` | `Bekannte Netzwerke` |
+| `wifi.networks.header` | `Networks` | `Netzwerke` |
+| `wifi.no_adapter` | `Your Computer doesn't have Wi-Fi` | `Dein Computer hat kein WLAN` |
 
 ## Network list
 
-`network_rows` loads live networks from the daemon backend
-(`src/daemon.rs`, `wifi_list`); when the daemon is unreachable the two
-example rows are shown. Each compact row shows the blue `wifi` icon
-(22px), four signal bars (filled count from `signal_pct`), the SSID
+`resolve_state` reads the radio state from the daemon backend
+(`src/daemon.rs`, `wifi_status` with `available`/`enabled`):
+
+- No adapter (`available: false`): the Known Networks and Networks
+  sections each show the `wifi.no_adapter` note, and the header toggle
+  is off and insensitive.
+- Radio off: only the header with the toggle stays visible, no sections
+  below.
+- Radio on: the Known Networks section (from `wifi_known_list`, most
+  recently connected first, no signal bars) plus the live scan list
+  (`wifi_list`).
+- Daemon unreachable: example rows under the Networks header.
+
+The header toggle applies `wifi_enable`/`wifi_disable` and raises a
+refresh flag; a `timeout_add_local` poller re-renders the page on the
+main thread (the TontooUI toggle handler must be Send + Sync and cannot
+touch GTK directly).
+
+Each compact row shows the blue `wifi` icon
+(22px), four signal bars for scan rows (filled count from `signal_pct`,
+hidden for known rows without a live signal), the SSID
 (13pt) and a small gray `lock.fill` badge (14px) when the network is
 secured (anything but `OPEN`). Rows sit directly on the screen with a
 thin separator, no card behind them. Clicking a row
 opens the join dialog: password entry for secured networks (error label
 for empty passwords and failed connects), direct connect for open ones.
+A successful connect closes the dialog and re-renders the page; the
+daemon stores the network as known (encrypted password, system-wide)
+and auto-joins it at startup.
 
 ## Window bar
 
@@ -160,7 +183,7 @@ localized `name` in `Info.tontoo`). Keep both locations in sync.
 | `sidebar.wifi` | `Wi-Fi` | `WLAN` |
 | `wifi.title` | `Wi-Fi` | `WLAN` |
 | `wifi.toggle` | `Wi-Fi` | `WLAN` |
-| `wifi.networks.header` | `Known Networks` | `Bekannte Netzwerke` |
+| `wifi.networks.header` | `Networks` | `Netzwerke` |
 | `wifi.example.note` | `Example content: connect to a network to get started.` | `Beispielinhalt: Verbinde dich mit einem Netzwerk, um zu starten.` |
 | `wifi.row.home` | `HomeNet` | `HeimNetz` |
 | `wifi.row.home.detail` | `Connected` | `Verbunden` |
@@ -681,7 +704,8 @@ a Developer Mode toggle (off) plus an API Logs row.
 
 `src/daemon.rs` wires the app to the settings daemon over its unix socket
 (`SETTINGS_SOCKET` override, else `/run/tontoo-settings.sock`). It covers
-the public read ops (`wifi_list`, `wifi_status`, `wallpaper_get`,
+the public read ops (`wifi_list`, `wifi_status`, `wifi_known_list`,
+`wallpaper_get`,
 `display_get`, `get_os`) and the
 private write ops (`wifi_connect`, `wifi_disconnect`, `wifi_enable`,
 `wifi_disable`, `wifi_forget`, `wallpaper_set_current`,
@@ -690,7 +714,8 @@ private write ops (`wifi_connect`, `wifi_disconnect`, `wifi_enable`,
 
 ```rust
 pub fn list() -> Result<Vec<WifiNetwork>, String>
-pub fn status() -> Result<(bool, Option<WifiStatus>), String>
+pub fn status() -> Result<WifiState, String>
+pub fn known_list() -> Result<Vec<KnownNetwork>, String>
 pub fn connect(ssid: &str, password: Option<&str>, hidden: bool) -> Result<WifiStatus, String>
 pub fn disconnect() -> Result<(), String>
 pub fn set_enabled(enabled: bool) -> Result<(), String>
@@ -707,9 +732,10 @@ pub fn display_set(output: Option<&str>, width: Option<i32>, height: Option<i32>
 
 Rules:
 
-- The Wallpaper page is daemon-wired (state, fill mode, uploads); the
-  Wi-Fi page keeps showing example content until the frontend step
-  connects it.
+- The Wallpaper, Displays and Wi-Fi pages are daemon-wired; `WifiState`
+  carries `enabled`, `available` (false without a wireless adapter) and
+  the current connection. Known networks come from `wifi_known_list`
+  (never passwords).
 - Missing or unreachable sockets return `Err`, never partial data.
 
 ## Packaging

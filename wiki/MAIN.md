@@ -32,6 +32,11 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: Wi-Fi page wired to the daemon: Known Networks section
+  from `wifi_known_list`, live scan, no-adapter note under both sections
+  (`wifi.no_adapter`), header-only when the radio is off, join dialog
+  stores known networks (daemon keeps the encrypted password
+  system-wide and auto-joins at startup).
 - 2026-09-12: Sign-in avatar as plain SF glyph on a fully round,
   slightly transparent disc (no tile, fixed 40px via exact-size thumb).
 - 2026-09-12: Sign-in header below the sidebar search again (with

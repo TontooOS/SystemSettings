@@ -1,10 +1,9 @@
-//! Settings daemon client (WiFi domain, backend wiring only).
+//! Settings daemon client (WiFi domain plus wallpaper, display and OS state).
 //!
-//! Covers the public read ops (`wifi_list`, `wifi_status`) and the private
-//! write ops (`wifi_connect`, `wifi_disconnect`, `wifi_enable`,
-//! `wifi_disable`, `wifi_forget`) reserved for this app
-//! (`com.tontoo.systemsettings`). No UI code uses this module yet;
-//! frontend wiring is a later step.
+//! Covers the public read ops (`wifi_list`, `wifi_status`,
+//! `wifi_known_list`) and the private write ops (`wifi_connect`,
+//! `wifi_disconnect`, `wifi_enable`, `wifi_disable`, `wifi_forget`)
+//! reserved for this app (`com.tontoo.systemsettings`).
 //!
 //! The Wallpaper and Displays pages are daemon-wired: `wallpaper_get`
 //! (public read) loads the full wallpaper state, `wallpaper_set_current`,
@@ -128,17 +127,52 @@ pub fn list() -> Result<Vec<WifiNetwork>, String> {
 }
 
 /// Radio state plus the active connection (`wifi_status`, public).
-/// Returns `(enabled, status)`.
-pub fn status() -> Result<(bool, Option<WifiStatus>), String> {
+#[derive(Debug, Clone)]
+pub struct WifiState {
+    pub enabled: bool,
+    pub available: bool,
+    pub current: Option<WifiStatus>,
+}
+
+/// One stored known network (`wifi_known_list`, public, no passwords).
+#[derive(Debug, Clone, Deserialize)]
+pub struct KnownNetwork {
+    pub ssid: String,
+    #[serde(default)]
+    pub security: String,
+    #[serde(default)]
+    pub last_connected: i64,
+    #[serde(default)]
+    pub auto_join: bool,
+}
+
+/// Radio state plus the active connection (`wifi_status`, public).
+pub fn status() -> Result<WifiState, String> {
     let result = call("wifi_status", serde_json::json!({}))?;
     let enabled = result
         .get("enabled")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let available = result
+        .get("available")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
     let current: Option<WifiStatus> =
         serde_json::from_value(result.get("status").cloned().unwrap_or(serde_json::Value::Null))
             .map_err(|e| format!("wifi status invalid: {}", e))?;
-    Ok((enabled, current))
+    Ok(WifiState {
+        enabled,
+        available,
+        current,
+    })
+}
+
+/// Stored known networks, most recently connected first
+/// (`wifi_known_list`, public).
+pub fn known_list() -> Result<Vec<KnownNetwork>, String> {
+    let result = call("wifi_known_list", serde_json::json!({}))?;
+    serde_json::from_value(result.get("networks").cloned().unwrap_or(serde_json::Value::Null))
+        .map_err(|e| format!("wifi known list invalid: {}", e))
 }
 
 /// Connect to a network (`wifi_connect`, private). Open networks take
@@ -457,9 +491,10 @@ mod tests {
         let path = unique_socket("status");
         std::env::set_var("SETTINGS_SOCKET", &path);
         serve_once(path.clone(), reply.clone());
-        let (enabled, current) = status().unwrap();
-        assert!(enabled);
-        assert_eq!(current.unwrap().ssid.as_deref(), Some("HomeNet"));
+        let state = status().unwrap();
+        assert!(state.enabled);
+        assert!(state.available);
+        assert_eq!(state.current.unwrap().ssid.as_deref(), Some("HomeNet"));
 
         let path = unique_socket("connect");
         std::env::set_var("SETTINGS_SOCKET", &path);
@@ -477,6 +512,46 @@ mod tests {
             serde_json::json!({"id": 1, "ok": true, "result": {"forgotten": true}}),
         );
         assert!(forget("HomeNet").unwrap());
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn status_reports_no_adapter() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("status-no-adapter");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result":
+                {"enabled": false, "status": null, "available": false}}),
+        );
+        let state = status().unwrap();
+        assert!(!state.available);
+        assert!(!state.enabled);
+        assert!(state.current.is_none());
+        std::env::remove_var("SETTINGS_SOCKET");
+    }
+
+    #[test]
+    fn known_list_roundtrip_without_passwords() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = unique_socket("known-list");
+        std::env::set_var("SETTINGS_SOCKET", &path);
+        serve_once(
+            path.clone(),
+            serde_json::json!({"id": 1, "ok": true, "result": {"networks": [
+                {"ssid": "HomeNet", "security": "WPA2",
+                 "last_connected": 1726000000, "auto_join": true},
+                {"ssid": "Cafe"},
+            ]}}),
+        );
+        let known = known_list().unwrap();
+        assert_eq!(known.len(), 2);
+        assert_eq!(known[0].ssid, "HomeNet");
+        assert_eq!(known[0].security, "WPA2");
+        assert!(known[0].auto_join);
+        assert_eq!(known[1].security, "");
+        assert!(!known[1].auto_join);
         std::env::remove_var("SETTINGS_SOCKET");
     }
 
