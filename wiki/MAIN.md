@@ -32,6 +32,8 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: Automatic time toggle always on and locked (daemon
+  enforces NTP at startup).
 - 2026-09-12: Date & Time timezone menu with working search
   (MenuButton plus filtered list instead of the unreliable DropDown
   search); 24-hour save failures show in the card.

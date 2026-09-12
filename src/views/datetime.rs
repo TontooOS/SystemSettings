@@ -204,10 +204,11 @@ fn render(
   let state = daemon::datetime_get().unwrap_or_default();
   clock_24h.set(state.use_24h);
 
-  // Automatic toggle: locked on for now.
+  // Automatic toggle: always on, not changeable. The daemon enforces
+  // NTP at startup; the UI offers no way to turn it off.
   let auto_card = card(pal.card);
   let (auto_row, _) = card_row("datetime.auto", &pal);
-  let auto_toggle = Toggle::new("").value(state.ntp).width(52.0);
+  let auto_toggle = Toggle::new("").value(true).width(52.0);
   let auto_gtk = auto_toggle.to_gtk();
   auto_gtk.set_halign(gtk::Align::End);
   auto_gtk.set_valign(gtk::Align::Center);

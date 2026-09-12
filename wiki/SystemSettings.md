@@ -319,7 +319,8 @@ render at full texture size.
 `src/views/datetime.rs`: hidden detail page behind the General Date &
 Time row (index 29, reached via history only, title from
 `general.datetime`). Four bare cards like the macOS mockup, no header:
-automatic toggle (locked on for now, insensitive), live date/time
+automatic toggle (always on, insensitive — the daemon enforces NTP at
+startup), live date/time
 (`Sep 12, 2026 at 12:56:08 PM`, refreshed every second, 24-hour variant
 without AM/PM), 24-hour toggle (applies through the daemon and
 re-renders; failures show in the card instead of silently snapping
