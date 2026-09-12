@@ -583,27 +583,36 @@ fn find_search_entry(widget: &gtk::Widget) -> Option<gtk::SearchEntry> {
   None
 }
 
-/// Insert the sign-in header right below the sidebar search field. The
-/// TontooUI Sidebar has no header slot, so the row goes into the built
-/// GTK tree after the search container; when the structure is
-/// unexpected the row is skipped.
+/// Insert the sign-in header as the first row of the scrollable sidebar
+/// list, so it scrolls away with the content (only the search field stays
+/// sticky on top). The TontooUI Sidebar has no header slot, so the row
+/// goes into the built GTK tree; when the structure is unexpected the row
+/// is skipped.
 fn inject_signin(sidebar_gtk: &gtk::Widget, fg: &str, secondary: &str) {
-  let Some(entry) = find_search_entry(sidebar_gtk) else {
+  if find_search_entry(sidebar_gtk).is_none() {
     println!("Sign-in header skipped: search field not found");
     return;
-  };
-  let Some(search_box) = entry.parent() else {
-    println!("Sign-in header skipped: search field has no parent");
+  }
+  // container children: traffic lights, search box, ScrolledWindow.
+  let mut node = sidebar_gtk.first_child();
+  while let Some(widget) = node {
+    node = widget.next_sibling();
+    let Ok(scroll) = widget.clone().downcast::<gtk::ScrolledWindow>() else {
+      continue;
+    };
+    let Some(viewport) = scroll
+      .first_child()
+      .and_then(|w| w.downcast::<gtk::Viewport>().ok())
+    else {
+      continue;
+    };
+    let Some(items) = viewport.child().and_then(|w| w.downcast::<gtk::Box>().ok()) else {
+      continue;
+    };
+    items.prepend(&signin_row(fg, secondary));
     return;
-  };
-  let Some(container) = search_box
-    .parent()
-    .and_then(|w| w.downcast::<gtk::Box>().ok())
-  else {
-    println!("Sign-in header skipped: search container has no box parent");
-    return;
-  };
-  container.insert_child_after(&signin_row(fg, secondary), Some(&search_box));
+  }
+  println!("Sign-in header skipped: sidebar list not found");
 }
 
 impl Widget for SettingsRoot {

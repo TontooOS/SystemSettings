@@ -32,6 +32,8 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: Sign-in header scrolls with the sidebar content (first
+  row of the scrollable list; only the search field stays sticky).
 - 2026-09-12: Wi-Fi page wired to the daemon: Known Networks section
   from `wifi_known_list`, live scan, no-adapter note under both sections
   (`wifi.no_adapter`), header-only when the radio is off, join dialog
