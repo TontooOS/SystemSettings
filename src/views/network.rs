@@ -1,8 +1,9 @@
-//! Network settings page for SystemSettings (example content).
+//! Network settings page for SystemSettings.
 //!
-//! Header plus example rows for DNS Server, VPN and wired networks
-//! (Ethernet, phone over USB-C). Wired rows carry on/off toggles.
-//! All text uses SF Pro Display and both `en_us` and `de_de` strings.
+//! Header plus DNS card (click-to-edit, applied system-wide through the
+//! daemon) and example wired rows (Ethernet, phone over USB-C) with
+//! on/off toggles. All text uses SF Pro Display and both `en_us` and
+//! `de_de` strings.
 
 use super::{WIFI_BLUE, is_dark, markup_label, palette, sidebar_style_icon_path};
 use crate::daemon;
@@ -282,16 +283,6 @@ pub(crate) fn build_page() -> gtk::Widget {
   subtitle.set_max_width_chars(48);
   titles.append(&subtitle);
   header.append(&titles);
-
-  let master = Toggle::new("")
-    .value(true)
-    .width(52.0)
-    .on_change(|on| println!("Network toggled: {}", on));
-  let master_gtk = master.to_gtk();
-  master_gtk.set_halign(gtk::Align::End);
-  master_gtk.set_valign(gtk::Align::Start);
-  master_gtk.set_vexpand(false);
-  header.append(&master_gtk);
   header_card.append(&header);
   detail.append(&header_card);
 
@@ -305,15 +296,6 @@ pub(crate) fn build_page() -> gtk::Widget {
   let gap2 = gtk::Box::new(gtk::Orientation::Vertical, 0);
   gap2.set_size_request(-1, 12);
   detail.append(&gap2);
-
-  // VPN card with an on/off toggle.
-  let vpn_card = card(pal.card);
-  vpn_card.append(&toggle_row("network.vpn", false, "VPN", pal.fg, true));
-  detail.append(&vpn_card);
-
-  let gap3 = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  gap3.set_size_request(-1, 12);
-  detail.append(&gap3);
 
   // Wired networks: physical links with on/off toggles.
   let wired = markup_label(

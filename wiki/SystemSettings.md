@@ -231,9 +231,8 @@ Tontoo Mouse off, each with an on/off toggle).
 ## Network page
 
 Example content (`src/views/network.rs`): header card with the blue `network`
-icon, title, subtitle and a master toggle on the top right (same 1:1
-header layout as Wi-Fi and Bluetooth), then the DNS card,
-a VPN card with an on/off toggle and a Wired Networks card (Ethernet
+icon, title and subtitle (same 1:1 header layout as Wi-Fi and Bluetooth,
+without a toggle), then the DNS card and a Wired Networks card (Ethernet
 on, iPhone USB off, each with an on/off toggle, divider between the
 rows). All cards use the shared style (`pal.card` background, 12px
 radius, `12px 16px` padding).

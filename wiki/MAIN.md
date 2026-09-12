@@ -32,6 +32,7 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: Network page without VPN card and without header toggle.
 - 2026-09-12: DNS errors classified: validation failures show the
   format hint, missing NetworkManager shows an unavailable note.
 - 2026-09-12: DNS really works: click-to-edit DNS card (single big
