@@ -32,6 +32,9 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: About images fixed-size with rounder corners (device
+  tile, OS logo and drive icon render via fixed `Picture`, never
+  scaling with the window; logo radius 24px).
 - 2026-09-12: About detail page (hidden page behind the General About
   row, history navigation): live hostname, processor, memory, kernel
   and app count, TontooOS card with versioned CoreIcon logo and dynamic

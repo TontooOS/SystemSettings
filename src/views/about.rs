@@ -215,21 +215,31 @@ fn info_row(label: &str, value: &str, pal_fg: &str, pal_secondary: &str, last: b
   row
 }
 
-/// Rounded OS logo picture, if resolvable.
-fn logo_picture(version: &str) -> Option<gtk::Picture> {
-  let path = os_logo_for_version(version)?;
-  let picture = gtk::Picture::for_filename(&path);
+/// Fixed-size picture with rounded corners: intrinsic texture size never
+/// leaks into layout, so the image stays exactly `px` big on every
+/// screen and window size.
+fn fixed_picture(path: &str, px: i32, radius: i32, class: &str) -> Option<gtk::Picture> {
+  let picture = gtk::Picture::for_filename(path);
   picture.set_content_fit(gtk::ContentFit::Cover);
   picture.set_hexpand(false);
   picture.set_vexpand(false);
   picture.set_can_shrink(true);
-  picture.set_size_request(LOGO_PX, LOGO_PX);
-  picture.add_css_class("about-logo");
+  picture.set_size_request(px, px);
+  picture.add_css_class(class);
   crate::UIKit::apply_css(
     &picture,
-    "picture.about-logo { border-radius: 12px; }",
+    &format!(
+      "picture.{} {{ border-radius: {}px; }}",
+      class, radius
+    ),
   );
   Some(picture)
+}
+
+/// Rounded OS logo picture, if resolvable.
+fn logo_picture(version: &str) -> Option<gtk::Picture> {
+  let path = os_logo_for_version(version)?;
+  fixed_picture(&path, LOGO_PX, 24, "about-logo")
 }
 
 /// The About detail page (directly on the screen).
@@ -254,10 +264,10 @@ pub(crate) fn build_page() -> gtk::Widget {
   if let Some(icon_path) =
     sidebar_style_icon_path("laptopcomputer", "about-device", DEVICE_GRAY)
   {
-    let icon = gtk::Image::from_file(&icon_path);
-    icon.set_pixel_size(DEVICE_ICON_PX);
-    icon.set_halign(gtk::Align::Center);
-    header.append(&icon);
+    if let Some(icon) = fixed_picture(&icon_path, DEVICE_ICON_PX, 16, "about-device") {
+      icon.set_halign(gtk::Align::Center);
+      header.append(&icon);
+    }
   }
   let title = markup_label(
     if hostname.is_empty() {
@@ -332,10 +342,10 @@ pub(crate) fn build_page() -> gtk::Widget {
   if let Some(icon_path) =
     sidebar_style_icon_path("internaldrive.fill", "about-storage", DEVICE_GRAY)
   {
-    let icon = gtk::Image::from_file(&icon_path);
-    icon.set_pixel_size(ROW_ICON_PX);
-    icon.set_valign(gtk::Align::Center);
-    storage_row.append(&icon);
+    if let Some(icon) = fixed_picture(&icon_path, ROW_ICON_PX, 8, "about-drive") {
+      icon.set_valign(gtk::Align::Center);
+      storage_row.append(&icon);
+    }
   }
   let (device, usage) = match storage_live() {
     Some((source, used, total)) => (source, format!("{} / {}", used, total)),
