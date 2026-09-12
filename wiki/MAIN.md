@@ -32,6 +32,8 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: About icons fixed at display size (aspect-kept
+  `cached_thumb_fit` pre-scale; raw textures rendered huge).
 - 2026-09-12: Real wired networks: live connected Ethernet list from
   `wired_list` with a "..." info popover (connection, IPs, MAC, speed,
   MTU, driver); note when none connected; unused VPN/example keys

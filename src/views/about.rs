@@ -266,11 +266,14 @@ fn info_row(label: &str, value: &str, pal_fg: &str, pal_secondary: &str, last: b
   row
 }
 
-/// Fixed-size picture with rounded corners: intrinsic texture size never
-/// leaks into layout, so the image stays exactly `px` big on every
-/// screen and window size.
+/// Fixed-size picture with rounded corners: the file is pre-scaled to
+/// `px` (`GtkPicture` sizes from the texture and ignores size requests,
+/// so the raw file would render at full texture size). Falls back to the
+/// source file when caching fails.
 fn fixed_picture(path: &str, px: i32, radius: i32, class: &str) -> Option<gtk::Picture> {
-  let picture = gtk::Picture::for_filename(path);
+  let file = super::wallpaper::cached_thumb_fit(std::path::Path::new(path), px, px)
+    .unwrap_or_else(|| std::path::PathBuf::from(path));
+  let picture = gtk::Picture::for_filename(file);
   picture.set_content_fit(gtk::ContentFit::Cover);
   picture.set_hexpand(false);
   picture.set_vexpand(false);

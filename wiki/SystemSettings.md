@@ -308,7 +308,10 @@ Device header with the bundled `Resources/laptop.png` artwork (64px,
 rounded, `laptop_png`; falls back to the gray `laptopcomputer` SF tile
 when the file is missing) plus the hostname, followed by the device
 card (name, chip, memory, kernel, app count), the TontooOS card and the
-storage card.
+storage card. All artwork goes through the aspect-kept
+`cached_thumb_fit` pre-scale (`src/views/wallpaper.rs`): `GtkPicture`
+sizes from the texture and ignores size requests, so raw files would
+render at full texture size.
 
 `src/views/about.rs`: hidden detail page behind the General About row
 (index 28, reached via history only, no sidebar entry). Device header

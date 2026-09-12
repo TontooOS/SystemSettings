@@ -222,6 +222,51 @@ pub(crate) fn cached_thumb_exact(
   Some(cached)
 }
 
+/// Aspect-kept cached thumbnail fitting inside `width` x `height` (no
+/// crop): the texture matches the display size, so `GtkPicture` (which
+/// sizes from the texture, ignoring size requests) renders exactly at
+/// the intended size. Falls back to `None` on any error.
+pub(crate) fn cached_thumb_fit(
+  source: &std::path::Path,
+  width: i32,
+  height: i32,
+) -> Option<std::path::PathBuf> {
+  use std::collections::hash_map::DefaultHasher;
+  use std::hash::{Hash, Hasher};
+
+  let meta = std::fs::metadata(source).ok()?;
+  if !meta.is_file() || width <= 0 || height <= 0 {
+    return None;
+  }
+  let cache_dir = thumb_cache_dir();
+  let mut hash = DefaultHasher::new();
+  source.to_string_lossy().hash(&mut hash);
+  meta.len().hash(&mut hash);
+  meta.modified().ok().hash(&mut hash);
+  (width as u32).hash(&mut hash);
+  (height as u32).hash(&mut hash);
+  let cached = cache_dir.join(format!("fit-{:016x}.png", hash.finish()));
+  if cached.is_file() {
+    return Some(cached);
+  }
+  if std::fs::create_dir_all(&cache_dir).is_err() {
+    return None;
+  }
+  let (_format, src_w, src_h) = gdk_pixbuf::Pixbuf::file_info(source.to_str()?)?;
+  if src_w <= 0 || src_h <= 0 {
+    return None;
+  }
+  // Scale so the image fits inside the target, keeping the aspect ratio.
+  let scale = (width as f64 / src_w as f64).min(height as f64 / src_h as f64);
+  let load_w = ((src_w as f64 * scale).ceil() as i32).max(1);
+  let load_h = ((src_h as f64 * scale).ceil() as i32).max(1);
+  let pixbuf = gdk_pixbuf::Pixbuf::from_file_at_scale(source.to_str()?, load_w, load_h, true).ok()?;
+  if pixbuf.savev(&cached, "png", &[]).is_err() {
+    return None;
+  }
+  Some(cached)
+}
+
 /// Scaled-down cached PNG for a source image (4K/6K files stay on disk).
 /// Falls back to the source path when caching fails.
 pub(crate) fn cached_thumb(source: &std::path::Path) -> Option<std::path::PathBuf> {
@@ -776,6 +821,40 @@ mod tests {
     assert_eq!(cached_thumb_exact(&source, 8, 8).unwrap(), thumb);
     // Missing source yields nothing.
     assert!(cached_thumb_exact(&dir.join("missing.png"), 8, 8).is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+  #[test]
+  fn fit_thumbs_keep_aspect_inside_display_size() {
+    let dir = std::env::temp_dir().join("systemsettings-fit-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // Wide source (32x8) fits into 8x8 as 8x2, nothing cropped.
+    let mut img = image::RgbImage::new(32, 8);
+    for p in img.pixels_mut() {
+      *p = image::Rgb([10, 200, 30]);
+    }
+    let source = dir.join("wide.png");
+    img
+      .save_with_format(&source, image::ImageFormat::Png)
+      .unwrap();
+    let thumb = cached_thumb_fit(&source, 8, 8).unwrap();
+    assert!(thumb.is_file());
+    let decoded = image::open(&thumb).unwrap().to_rgb8();
+    assert_eq!(decoded.dimensions(), (8, 2));
+    // Square source fills the box exactly.
+    let mut square = image::RgbImage::new(16, 16);
+    for p in square.pixels_mut() {
+      *p = image::Rgb([200, 30, 30]);
+    }
+    let square_source = dir.join("square.png");
+    square
+      .save_with_format(&square_source, image::ImageFormat::Png)
+      .unwrap();
+    let square_thumb = cached_thumb_fit(&square_source, 8, 8).unwrap();
+    let decoded_square = image::open(&square_thumb).unwrap().to_rgb8();
+    assert_eq!(decoded_square.dimensions(), (8, 8));
+    // Missing source yields nothing.
+    assert!(cached_thumb_fit(&dir.join("missing.png"), 8, 8).is_none());
     let _ = std::fs::remove_dir_all(&dir);
   }
   fn solid_png(dir: &std::path::Path, name: &str, pixel: [u8; 3]) -> std::path::PathBuf {
