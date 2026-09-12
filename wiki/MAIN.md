@@ -32,6 +32,8 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-11: General rows grouped into cards (first 3 together,
+  AirDrop alone, next 7 together, last 2 alone).
 - 2026-09-11: Displays without header (like Wallpaper), controls in a
   card (visible in Light Mode via white cards), brightness uses the
   TontooUI slider.

@@ -241,11 +241,11 @@ details).
 ## General page
 
 `src/views/general.rs`: centered header card (gear tile, title,
-subtitle) plus one card per row (About, Software Update, Storage,
-AirDrop & Handoff, AutoFill & Passwords, Date & Time, Language &
-Region, Login Items & Extensions, Sharing, Startup Disk, Time Machine,
-Device Management, Transfer or Reset), each with a CoreIcon tile, label
-and chevron. Display only: rows have no click actions yet.
+subtitle) plus grouped row cards — first 3 together (About, Software
+Update, Storage), AirDrop & Handoff alone, next 7 together (AutoFill &
+Passwords through Time Machine), last 2 alone (Device Management,
+Transfer or Reset) — each row with a CoreIcon tile, label and chevron.
+Display only: rows have no click actions yet.
 
 | Key | en_us | de_de |
 |---|---|---|

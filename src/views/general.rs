@@ -43,6 +43,10 @@ pub(crate) const ROWS: &[GeneralRow] = &[
   GeneralRow { key: "general.transfer_reset", symbol: "arrow.triangle.swap", color: BADGE_GRAY },
 ];
 
+/// Row groups (card boundaries) in mockup order: first 3 together,
+/// then AirDrop alone, then the next 7 together, then the last 2 alone.
+pub(crate) const GROUPS: &[usize] = &[3, 1, 7, 1, 1];
+
 /// Rounded card container in the page palette color.
 fn card(pal_card: &str) -> gtk::Box {
   let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -57,12 +61,14 @@ fn card(pal_card: &str) -> gtk::Box {
   card
 }
 
-/// One row card: tile icon, label and chevron. No click action yet.
-fn nav_row(row: &GeneralRow, pal_fg: &str, pal_secondary: &str, pal_card: &str) -> gtk::Box {
-  let card = card(pal_card);
+/// One row: tile icon, label and chevron. No click action yet.
+/// All but the last row in a card get a divider.
+fn nav_row(row: &GeneralRow, pal_fg: &str, pal_secondary: &str, last: bool) -> gtk::Box {
   let inner = gtk::Box::new(gtk::Orientation::Horizontal, 12);
   inner.set_hexpand(true);
   inner.set_valign(gtk::Align::Center);
+  inner.set_margin_top(5);
+  inner.set_margin_bottom(5);
 
   let tag = row.key.replace("general.", "general-row-");
   if let Some(icon_path) = sidebar_style_icon_path(row.symbol, &tag, row.color) {
@@ -83,8 +89,13 @@ fn nav_row(row: &GeneralRow, pal_fg: &str, pal_secondary: &str, pal_card: &str) 
   chevron.set_halign(gtk::Align::End);
   inner.append(&chevron);
 
-  card.append(&inner);
-  card
+  if !last {
+    crate::UIKit::apply_css(
+      &inner,
+      "box { border-bottom: 1px solid rgba(128,128,128,0.25); }",
+    );
+  }
+  inner
 }
 
  /// The General detail page (directly on the screen).
@@ -126,13 +137,28 @@ pub(crate) fn build_page() -> gtk::Widget {
   header.append(&header_inner);
   detail.append(&header);
 
-  for row in ROWS {
-    detail.append(&nav_row(row, fg, secondary, pal.card));
+  // Grouped cards: first 3 together, AirDrop alone, next 7 together,
+  // last 2 alone (any future rows land in a final card).
+  let mut bounds: Vec<(usize, usize)> = Vec::new();
+  let mut start = 0;
+  for size in GROUPS.iter().copied().chain(std::iter::once(usize::MAX)) {
+    if start >= ROWS.len() {
+      break;
+    }
+    let end = start.saturating_add(size).min(ROWS.len());
+    bounds.push((start, end));
+    start = end;
+  }
+  for (start, end) in bounds {
+    let card = card(pal.card);
+    for (i, row) in ROWS[start..end].iter().enumerate() {
+      card.append(&nav_row(row, fg, secondary, i + 1 == end - start));
+    }
+    detail.append(&card);
   }
 
   detail.upcast()
 }
-
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -148,5 +174,11 @@ mod tests {
       assert!(row.key.starts_with("general."));
       assert!(!row.symbol.is_empty());
     }
+  }
+
+  #[test]
+  fn groups_cover_all_rows() {
+    assert_eq!(GROUPS, &[3, 1, 7, 1, 1]);
+    assert_eq!(GROUPS.iter().sum::<usize>(), ROWS.len());
   }
 }
