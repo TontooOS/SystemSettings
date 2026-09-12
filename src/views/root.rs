@@ -583,9 +583,9 @@ fn find_search_entry(widget: &gtk::Widget) -> Option<gtk::SearchEntry> {
   None
 }
 
-/// Insert the sign-in header right above the sidebar search field. The
+/// Insert the sign-in header right below the sidebar search field. The
 /// TontooUI Sidebar has no header slot, so the row goes into the built
-/// GTK tree in front of the search container; when the structure is
+/// GTK tree after the search container; when the structure is
 /// unexpected the row is skipped.
 fn inject_signin(sidebar_gtk: &gtk::Widget, fg: &str, secondary: &str) {
   let Some(entry) = find_search_entry(sidebar_gtk) else {
@@ -603,8 +603,7 @@ fn inject_signin(sidebar_gtk: &gtk::Widget, fg: &str, secondary: &str) {
     println!("Sign-in header skipped: search container has no box parent");
     return;
   };
-  let prev = search_box.prev_sibling();
-  container.insert_child_after(&signin_row(fg, secondary), prev.as_ref());
+  container.insert_child_after(&signin_row(fg, secondary), Some(&search_box));
 }
 
 impl Widget for SettingsRoot {
