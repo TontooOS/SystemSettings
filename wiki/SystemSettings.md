@@ -296,9 +296,10 @@ details).
 
 `src/views/general.rs`: centered header card (gear tile, title,
 subtitle) plus grouped row cards — first 3 together (About, Software
-Update, Storage), AirDrop & Handoff alone, next 7 together (AutoFill &
-Passwords through Time Machine), last 2 alone (Device Management,
-Transfer or Reset) — each row with a CoreIcon tile, label and chevron.
+Update, Storage), AirDrop & Handoff alone, next 4 together (Date &
+Time, Language & Region, Sharing, Startup Disk), last 2 alone (Device
+Management, Transfer or Reset) — each row with a CoreIcon tile, label
+and chevron.
 The About row navigates to the hidden About detail page, the Date &
 Time row to the hidden Date & Time page (index 29) and the Language &
 Region row to the hidden Language & Region page (index 30, title from
@@ -398,13 +399,10 @@ daemon (`get_os`, dynamic, never hardcoded).
 | `general.software_update` | `Software Update` | `Softwareupdate` |
 | `general.storage` | `Storage` | `Speicher` |
 | `general.airdrop` | `AirDrop & Handoff` | `AirDrop & Handoff` |
-| `general.autofill` | `AutoFill & Passwords` | `AutoFill & Passwörter` |
 | `general.datetime` | `Date & Time` | `Datum & Uhrzeit` |
 | `general.language` | `Language & Region` | `Sprache & Region` |
-| `general.login_items` | `Login Items & Extensions` | `Anmeldeobjekte & Erweiterungen` |
 | `general.sharing` | `Sharing` | `Freigaben` |
 | `general.startup_disk` | `Startup Disk` | `Startvolume` |
-| `general.time_machine` | `Time Machine` | `Time Machine` |
 | `general.device_management` | `Device Management` | `Geräteverwaltung` |
 | `general.transfer_reset` | `Transfer or Reset` | `Übertragen oder Zurücksetzen` |
 

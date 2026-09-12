@@ -17,7 +17,6 @@ const GEAR_GRAY: (u8, u8, u8) = (142, 142, 147);
 const WIFI_BLUE: (u8, u8, u8) = (0, 122, 255);
 const BADGE_GRAY: (u8, u8, u8) = (142, 142, 147);
 const INK_BLACK: (u8, u8, u8) = (0, 0, 0);
-const TONTOO_ORANGE: (u8, u8, u8) = (255, 107, 43);
 
 /// One General row: lang key, SF Symbol name and tile color.
 pub(crate) struct GeneralRow {
@@ -32,20 +31,17 @@ pub(crate) const ROWS: &[GeneralRow] = &[
   GeneralRow { key: "general.software_update", symbol: "arrow.triangle.2.circlepath", color: WIFI_BLUE },
   GeneralRow { key: "general.storage", symbol: "internaldrive.fill", color: BADGE_GRAY },
   GeneralRow { key: "general.airdrop", symbol: "square.and.arrow.up", color: BADGE_GRAY },
-  GeneralRow { key: "general.autofill", symbol: "key.fill", color: BADGE_GRAY },
   GeneralRow { key: "general.datetime", symbol: "clock.fill", color: INK_BLACK },
   GeneralRow { key: "general.language", symbol: "globe", color: WIFI_BLUE },
-  GeneralRow { key: "general.login_items", symbol: "square.stack.3d.up.fill", color: TONTOO_ORANGE },
   GeneralRow { key: "general.sharing", symbol: "person.2.circle.fill", color: BADGE_GRAY },
   GeneralRow { key: "general.startup_disk", symbol: "internaldrive.fill", color: BADGE_GRAY },
-  GeneralRow { key: "general.time_machine", symbol: "clock.arrow.circlepath", color: BADGE_GRAY },
   GeneralRow { key: "general.device_management", symbol: "checkmark.seal.fill", color: BADGE_GRAY },
   GeneralRow { key: "general.transfer_reset", symbol: "arrow.triangle.swap", color: BADGE_GRAY },
 ];
 
 /// Row groups (card boundaries) in mockup order: first 3 together,
-/// then AirDrop alone, then the next 7 together, then the last 2 alone.
-pub(crate) const GROUPS: &[usize] = &[3, 1, 7, 1, 1];
+/// then AirDrop alone, then the next 4 together, then the last 2 alone.
+pub(crate) const GROUPS: &[usize] = &[3, 1, 4, 2];
 
 /// Rounded card container in the page palette color.
 fn card(pal_card: &str) -> gtk::Box {
@@ -146,7 +142,7 @@ pub(crate) fn build_page(nav: &std::sync::Arc<std::sync::Mutex<super::root::NavS
   header.append(&header_inner);
   detail.append(&header);
 
-  // Grouped cards: first 3 together, AirDrop alone, next 7 together,
+  // Grouped cards: first 3 together, AirDrop alone, next 4 together,
   // last 2 alone (any future rows land in a final card).
   let mut bounds: Vec<(usize, usize)> = Vec::new();
   let mut start = 0;
@@ -168,8 +164,8 @@ pub(crate) fn build_page(nav: &std::sync::Arc<std::sync::Mutex<super::root::NavS
       // page; every other row is display only.
       let target = match start + i {
         0 => Some(ABOUT_PAGE),
-        5 => Some(DATETIME_PAGE),
-        6 => Some(LOCALE_PAGE),
+        4 => Some(DATETIME_PAGE),
+        5 => Some(LOCALE_PAGE),
         _ => None,
       };
       if let Some(page) = target {
@@ -198,11 +194,13 @@ mod tests {
 
   #[test]
   fn rows_match_mockup() {
-    assert_eq!(ROWS.len(), 13);
+    assert_eq!(ROWS.len(), 10);
     let keys: Vec<&str> = ROWS.iter().map(|row| row.key).collect();
     assert_eq!(keys[0], "general.about");
     assert_eq!(keys[3], "general.airdrop");
-    assert_eq!(keys[12], "general.transfer_reset");
+    assert_eq!(keys[4], "general.datetime");
+    assert_eq!(keys[5], "general.language");
+    assert_eq!(keys[9], "general.transfer_reset");
     for row in ROWS {
       assert!(row.key.starts_with("general."));
       assert!(!row.symbol.is_empty());
@@ -211,7 +209,7 @@ mod tests {
 
   #[test]
   fn groups_cover_all_rows() {
-    assert_eq!(GROUPS, &[3, 1, 7, 1, 1]);
+    assert_eq!(GROUPS, &[3, 1, 4, 2]);
     assert_eq!(GROUPS.iter().sum::<usize>(), ROWS.len());
   }
 }

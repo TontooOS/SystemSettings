@@ -32,6 +32,8 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: General tab without AutoFill & Passwords, Login Items &
+  Extensions and Time Machine (10 rows, groups [3,1,4,2]).
 - 2026-09-12: Language & Region page (General row, hidden index 30):
   system language EN/DE with checkmark plus "More soon", searchable
   full country list, keyboard layouts with variants plus Auto Detect —
