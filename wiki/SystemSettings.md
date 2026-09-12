@@ -322,11 +322,12 @@ Time row (index 29, reached via history only, title from
 automatic toggle (locked on for now, insensitive), live date/time
 (`Sep 12, 2026 at 12:56:08 PM`, refreshed every second, 24-hour variant
 without AM/PM), 24-hour toggle (applies through the daemon and
-re-renders) and a searchable timezone dropdown with the real daemon
-zone list (never errors; failures revert the selection and show
-`datetime.tz_failed`). State comes from `datetime_get`; writes go
-through `datetime_set_timezone`/`datetime_set_24h` (`timedatectl`, so
-changes apply system-wide).
+re-renders; failures show in the card instead of silently snapping
+back) and a timezone menu button opening a searchable zone list
+(search field plus filtered rows; picking a row applies it, failures
+show `datetime.tz_failed` and keep the menu open). State comes from
+`datetime_get`; writes go through `datetime_set_timezone`/`datetime_set_24h`
+(`timedatectl`, so changes apply system-wide).
 
 | Key | en_us | de_de |
 |---|---|---|

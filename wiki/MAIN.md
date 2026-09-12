@@ -32,6 +32,9 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: Date & Time timezone menu with working search
+  (MenuButton plus filtered list instead of the unreliable DropDown
+  search); 24-hour save failures show in the card.
 - 2026-09-12: Date & Time page (General row, hidden index 29): four
   bare cards (locked-on automatic toggle, live clock, 24-hour toggle,
   real searchable timezone dropdown) wired to the daemon `timedatectl`

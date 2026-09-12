@@ -16,7 +16,7 @@ use gtk::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::{
-  Arc,
+  Arc, Mutex,
   atomic::{AtomicBool, Ordering},
 };
 
@@ -78,14 +78,94 @@ fn format_now(use_24h: bool) -> String {
   format!("{} at {}", date, time)
 }
 
-/// Selected dropdown index for the current timezone (first entry when
-/// missing, so the dropdown never errors).
-fn zone_index(zones: &[String], current: &str) -> u32 {
-  zones
-    .iter()
-    .position(|z| z == current)
-    .map(|i| i as u32)
-    .unwrap_or(0)
+/// Searchable timezone menu content: search field plus the filtered
+/// zone list. Picking a row applies it through the daemon; failures
+/// show in `tz_error` and keep the menu open for another try.
+fn timezone_menu(
+  zones: &Rc<Vec<String>>,
+  current: &str,
+  pal: &Palette,
+  tz_error: &gtk::Label,
+  refresh_flag: &Arc<AtomicBool>,
+) -> gtk::Box {
+  let body = gtk::Box::new(gtk::Orientation::Vertical, 6);
+  body.set_hexpand(true);
+  body.set_vexpand(true);
+  body.set_margin_top(8);
+  body.set_margin_bottom(8);
+  body.set_margin_start(8);
+  body.set_margin_end(8);
+
+  let search = gtk::SearchEntry::new();
+  search.set_hexpand(true);
+  search.set_placeholder_text(Some("Search"));
+  body.append(&search);
+
+  let scroll = gtk::ScrolledWindow::new();
+  scroll.set_hscrollbar_policy(gtk::PolicyType::Never);
+  scroll.set_vscrollbar_policy(gtk::PolicyType::Automatic);
+  scroll.set_size_request(280, 300);
+  scroll.set_vexpand(true);
+  let list = gtk::ListBox::new();
+  list.set_hexpand(true);
+  list.set_selection_mode(gtk::SelectionMode::None);
+  let mut rows: Vec<(gtk::ListBoxRow, String)> = Vec::new();
+  for zone in zones.iter() {
+    let label = markup_label(zone, 13, "normal", pal.fg);
+    label.set_halign(gtk::Align::Start);
+    label.set_xalign(0.0);
+    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    let row = gtk::ListBoxRow::new();
+    row.set_child(Some(&label));
+    if zone == current {
+      row.add_css_class("tz-current");
+      apply_css(
+        &row,
+        "row.tz-current { background-color: rgba(128,128,128,0.25); border-radius: 6px; }",
+      );
+    }
+    list.append(&row);
+    rows.push((row, zone.to_lowercase()));
+  }
+  let rows = Rc::new(rows);
+  scroll.set_child(Some(&list));
+  body.append(&scroll);
+
+  let rows_filter = Rc::clone(&rows);
+  search.connect_search_changed(move |entry| {
+    let query = entry.text().to_string().to_lowercase();
+    for (row, text) in rows_filter.iter() {
+      row.set_visible(query.is_empty() || text.contains(&query));
+    }
+  });
+
+  let zones_pick = Rc::clone(zones);
+  let tz_error_pick = tz_error.clone();
+  let refresh_applied = Arc::clone(refresh_flag);
+  list.connect_row_activated(move |_, row| {
+    let index = row.index() as usize;
+    let zone = zones_pick.get(index).cloned().unwrap_or_default();
+    if zone.is_empty() {
+      return;
+    }
+    match daemon::datetime_set_timezone(&zone) {
+      Ok(_) => {
+        tz_error_pick.set_visible(false);
+        refresh_applied.store(true, Ordering::SeqCst);
+      }
+      Err(e) => {
+        tz_error_pick.set_markup(&span(
+          &format!("{} ({})", lang::t("datetime.tz_failed"), e),
+          12,
+          "normal",
+          "#FF453A",
+        ));
+        tz_error_pick.set_visible(true);
+      }
+    }
+  });
+
+  body
 }
 
 /// One card row: label left, control right.
@@ -107,12 +187,15 @@ fn card_row(label_key: &str, pal: &Palette) -> (gtk::Box, gtk::Label) {
 /// Fill `detail` for the current daemon state. `refresh_flag` is set by
 /// the 24-hour toggle (whose handler must be Send + Sync); the poller in
 /// `build_page` picks it up and re-renders here. `clock`/`clock_24h`
-/// point the 1-second ticker at the fresh date/time label.
+/// point the 1-second ticker at the fresh date/time label. `last_error`
+/// carries a failed 24-hour save into the re-render so it shows instead
+/// of silently snapping back.
 fn render(
   detail: &gtk::Box,
   refresh_flag: &Arc<AtomicBool>,
   clock: &Rc<RefCell<Option<glib::WeakRef<gtk::Label>>>>,
   clock_24h: &Rc<Cell<bool>>,
+  last_error: &Arc<Mutex<Option<String>>>,
 ) {
   while let Some(child) = detail.first_child() {
     detail.remove(&child);
@@ -146,14 +229,19 @@ fn render(
   *clock.borrow_mut() = Some(time_value.downgrade());
 
   // 24-hour toggle: applies through the daemon, then re-renders.
+  // Failures surface in the card instead of silently snapping back.
   let day_card = card(pal.card);
   let (day_row, _) = card_row("datetime.use_24h", &pal);
   let refresh_raised = Arc::clone(refresh_flag);
+  let error_slot = Arc::clone(last_error);
   let day_toggle = Toggle::new("")
     .value(state.use_24h)
     .width(52.0)
     .on_change(move |on| {
-      let _ = daemon::datetime_set_24h(on);
+      let result = daemon::datetime_set_24h(on).err();
+      if let Ok(mut slot) = error_slot.lock() {
+        *slot = result;
+      }
       refresh_raised.store(true, Ordering::SeqCst);
     });
   let day_gtk = day_toggle.to_gtk();
@@ -162,70 +250,46 @@ fn render(
   day_gtk.set_vexpand(false);
   day_row.append(&day_gtk);
   day_card.append(&day_row);
+  if let Some(message) = last_error.lock().ok().and_then(|mut slot| slot.take()) {
+    let day_error = markup_label(&message, 12, "normal", "#FF453A");
+    day_error.set_halign(gtk::Align::End);
+    day_error.set_xalign(1.0);
+    day_error.set_wrap(true);
+    day_error.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    day_card.append(&day_error);
+  }
   detail.append(&day_card);
 
-  // Timezone dropdown with the real zone list.
+  // Timezone menu button with the real zone list.
   let tz_card = card(pal.card);
   let (tz_row, _) = card_row("datetime.timezone", &pal);
   let zones: Rc<Vec<String>> = Rc::new(state.timezones.clone());
-  let zone_refs: Vec<&str> = zones.iter().map(String::as_str).collect();
-  let dropdown = gtk::DropDown::from_strings(&zone_refs);
-  dropdown.set_enable_search(true);
-  dropdown.set_halign(gtk::Align::End);
-  dropdown.set_valign(gtk::Align::Center);
-  dropdown.set_selected(zone_index(&zones, &state.timezone));
+  let menu = gtk::MenuButton::new();
+  menu.set_halign(gtk::Align::End);
+  menu.set_valign(gtk::Align::Center);
+  let menu_label = markup_label(&state.timezone, 13, "normal", pal.fg);
+  menu_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+  menu_label.set_max_width_chars(26);
+  menu.set_child(Some(&menu_label));
   let tz_error = markup_label("", 12, "normal", "#FF453A");
   tz_error.set_halign(gtk::Align::End);
   tz_error.set_xalign(1.0);
+  tz_error.set_wrap(true);
+  tz_error.set_wrap_mode(gtk::pango::WrapMode::WordChar);
   tz_error.set_visible(false);
-  tz_row.append(&dropdown);
+  let popover = gtk::Popover::new();
+  popover.set_child(Some(&timezone_menu(
+    &zones,
+    &state.timezone,
+    &pal,
+    &tz_error,
+    refresh_flag,
+  )));
+  menu.set_popover(Some(&popover));
+  tz_row.append(&menu);
   tz_card.append(&tz_row);
   tz_card.append(&tz_error);
   detail.append(&tz_card);
-
-  // Guard against our own programmatic revert below.
-  let syncing = Rc::new(Cell::new(false));
-  let syncing_handler = Rc::clone(&syncing);
-  let zones_handler = Rc::clone(&zones);
-  let current_tz = state.timezone.clone();
-  let tz_error_handler = tz_error.clone();
-  let refresh_applied = Arc::clone(refresh_flag);
-  dropdown.connect_selected_notify(move |dd| {
-    if syncing_handler.get() {
-      return;
-    }
-    let zone = dd
-      .selected_item()
-      .and_then(|item| item.downcast::<gtk::StringObject>().ok())
-      .map(|obj| obj.string().to_string())
-      .or_else(|| {
-        zones_handler
-          .get(dd.selected() as usize)
-          .cloned()
-      })
-      .unwrap_or_default();
-    if zone.is_empty() {
-      return;
-    }
-    match daemon::datetime_set_timezone(&zone) {
-      Ok(_) => {
-        tz_error_handler.set_visible(false);
-        refresh_applied.store(true, Ordering::SeqCst);
-      }
-      Err(e) => {
-        tz_error_handler.set_markup(&span(
-          &format!("{} ({})", lang::t("datetime.tz_failed"), e),
-          12,
-          "normal",
-          "#FF453A",
-        ));
-        tz_error_handler.set_visible(true);
-        syncing_handler.set(true);
-        dd.set_selected(zone_index(&zones_handler, &current_tz));
-        syncing_handler.set(false);
-      }
-    }
-  });
 }
 
 /// The Date & Time detail page: four bare cards, directly on the screen.
@@ -239,20 +303,22 @@ pub(crate) fn build_page() -> gtk::Widget {
   detail.set_margin_end(24);
 
   let refresh_flag = Arc::new(AtomicBool::new(false));
+  let last_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
   let clock: Rc<RefCell<Option<glib::WeakRef<gtk::Label>>>> = Rc::new(RefCell::new(None));
   let clock_24h: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
-  // Refresh poller for toggle/dropdown changes; stops with the page.
+  // Refresh poller for toggle/menu changes; stops with the page.
   let weak = detail.downgrade();
   let raised = Arc::clone(&refresh_flag);
   let rendered = Arc::clone(&refresh_flag);
+  let error_rendered = Arc::clone(&last_error);
   let clock_render = Rc::clone(&clock);
   let clock_24h_render = Rc::clone(&clock_24h);
   glib::timeout_add_local(std::time::Duration::from_millis(150), move || {
     match weak.upgrade() {
       Some(detail) => {
         if raised.swap(false, Ordering::SeqCst) {
-          render(&detail, &rendered, &clock_render, &clock_24h_render);
+          render(&detail, &rendered, &clock_render, &clock_24h_render, &error_rendered);
         }
         glib::ControlFlow::Continue
       }
@@ -279,7 +345,7 @@ pub(crate) fn build_page() -> gtk::Widget {
     glib::ControlFlow::Continue
   });
 
-  render(&detail, &refresh_flag, &clock, &clock_24h);
+  render(&detail, &refresh_flag, &clock, &clock_24h, &last_error);
   detail.upcast()
 }
 
@@ -295,13 +361,5 @@ mod tests {
     let twenty_four = format_now(true);
     assert!(twenty_four.contains(" at "));
     assert!(!twenty_four.contains("AM") && !twenty_four.contains("PM"));
-  }
-
-  #[test]
-  fn zone_index_selects_current_or_first() {
-    let zones = vec!["Europe/Berlin".to_string(), "UTC".to_string()];
-    assert_eq!(zone_index(&zones, "UTC"), 1);
-    assert_eq!(zone_index(&zones, "Mars/Olympus_Mons"), 0);
-    assert_eq!(zone_index(&[], "UTC"), 0);
   }
 }
