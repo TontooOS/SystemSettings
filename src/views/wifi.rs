@@ -36,6 +36,21 @@ fn badge_icon_path() -> Option<String> {
   sidebar_style_icon_path("lock.fill", "badge_lock", BADGE_GRAY)
 }
 
+/// Rounded card container in the page palette color (same style as the
+/// General/About pages).
+fn card(pal_card: &str) -> gtk::Box {
+  let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
+  card.set_hexpand(true);
+  apply_css(
+    &card,
+    &format!(
+      "box {{ background-color: {}; border-radius: 12px; padding: 12px 16px; }}",
+      pal_card
+    ),
+  );
+  card
+}
+
 /// Four signal bars, filled according to `signal_pct` (0-100).
 fn signal_bars(signal_pct: i32, filled_hex: &str, empty_hex: &str) -> gtk::Widget {
   let row = gtk::Box::new(gtk::Orientation::Horizontal, 2);
@@ -327,7 +342,7 @@ fn render(detail: &gtk::Box, refresh_flag: &Arc<AtomicBool>) {
   let pal = palette(is_dark());
   let state = resolve_state();
 
-  // Header row: blue Wi-Fi icon, title + subtitle, toggle on the right.
+  // Header card: blue Wi-Fi icon, title + subtitle, toggle on the right.
   // Without an adapter the toggle is off and insensitive; with the radio
   // off it is off; otherwise it reflects the radio state.
   let (toggle_on, toggle_live) = match &state {
@@ -337,8 +352,10 @@ fn render(detail: &gtk::Box, refresh_flag: &Arc<AtomicBool>) {
     PageState::On { .. } => (true, true),
   };
 
+  let header_card = card(pal.card);
   let header = gtk::Box::new(gtk::Orientation::Horizontal, 10);
   header.set_hexpand(true);
+  header.set_valign(gtk::Align::Center);
 
   if let Some(icon_path) = wifi_icon_path() {
     let icon = gtk::Image::from_file(&icon_path);
@@ -380,7 +397,8 @@ fn render(detail: &gtk::Box, refresh_flag: &Arc<AtomicBool>) {
   toggle_gtk.set_vexpand(false);
   toggle_gtk.set_sensitive(toggle_live);
   header.append(&toggle_gtk);
-  detail.append(&header);
+  header_card.append(&header);
+  detail.append(&header_card);
 
   let gap = gtk::Box::new(gtk::Orientation::Vertical, 0);
   gap.set_size_request(-1, 16);

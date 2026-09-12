@@ -91,12 +91,13 @@ at the history ends. Layout only, no app design dependency.
 
 ## Wi-Fi header
 
-The detail page starts with a header row directly on the screen: the blue
+The detail page starts with a header card directly on the screen: the blue
 `wifi` SF Symbol icon (rendered by `wifi_icon_path` with the exact sidebar
 artwork parameters: solid `#007AFF` fill, white glyph, cached under the
 temp dir), the title plus a two-line subtitle, and the toggle pinned to
-the top right. When icon generation fails the row degrades to titles plus
-toggle.
+the top right. The card uses the shared style (`pal.card` background,
+12px radius, `12px 16px` padding, like General/About). When icon
+generation fails the row degrades to titles plus toggle.
 
 | Key | en_us | de_de |
 |---|---|---|
