@@ -32,6 +32,8 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: Network page sections sit in cards (header, DNS, VPN,
+  Wired Networks) like the other pages.
 - 2026-09-12: Wi-Fi header sits in a card (shared 12px style) like the
   other pages.
 - 2026-09-12: Sign-in header scrolls with the sidebar content (first

@@ -17,6 +17,21 @@ fn network_icon_path() -> Option<String> {
   sidebar_style_icon_path("network", "network", WIFI_BLUE)
 }
 
+/// Rounded card container in the page palette color (same style as the
+/// General/About/Wi-Fi pages).
+fn card(pal_card: &str) -> gtk::Box {
+  let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
+  card.set_hexpand(true);
+  crate::UIKit::apply_css(
+    &card,
+    &format!(
+      "box {{ background-color: {}; border-radius: 12px; padding: 12px 16px; }}",
+      pal_card
+    ),
+  );
+  card
+}
+
 /// Example on/off row: label on the left, toggle on the right.
 fn toggle_row(
   label_key: &str,
@@ -67,9 +82,11 @@ pub(crate) fn build_page() -> gtk::Widget {
   detail.set_margin_start(24);
   detail.set_margin_end(24);
 
-  // Header row: blue network icon, title + subtitle.
+  // Header card: blue network icon, title + subtitle, master toggle.
+  let header_card = card(pal.card);
   let header = gtk::Box::new(gtk::Orientation::Horizontal, 10);
   header.set_hexpand(true);
+  header.set_valign(gtk::Align::Center);
 
   if let Some(icon_path) = network_icon_path() {
     let icon = gtk::Image::from_file(&icon_path);
@@ -108,20 +125,23 @@ pub(crate) fn build_page() -> gtk::Widget {
   master_gtk.set_valign(gtk::Align::Start);
   master_gtk.set_vexpand(false);
   header.append(&master_gtk);
-  detail.append(&header);
+  header_card.append(&header);
+  detail.append(&header_card);
 
   let gap = gtk::Box::new(gtk::Orientation::Vertical, 0);
   gap.set_size_request(-1, 16);
   detail.append(&gap);
 
-  // DNS server row with an example address on the right.
+  // DNS server card with an example address on the right.
   let section = markup_label(&lang::t("network.dns"), 12, "normal", pal.secondary);
   section.set_halign(gtk::Align::Start);
   section.set_margin_bottom(2);
   detail.append(&section);
 
+  let dns_card = card(pal.card);
   let dns_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
   dns_row.set_hexpand(true);
+  dns_row.set_valign(gtk::Align::Center);
   dns_row.set_margin_top(5);
   dns_row.set_margin_bottom(5);
   let dns_name = markup_label(&lang::t("network.dns"), 13, "normal", pal.fg);
@@ -131,14 +151,17 @@ pub(crate) fn build_page() -> gtk::Widget {
   let dns_value = markup_label(&lang::t("network.dns.detail"), 13, "normal", pal.secondary);
   dns_value.set_halign(gtk::Align::End);
   dns_row.append(&dns_value);
-  detail.append(&dns_row);
+  dns_card.append(&dns_row);
+  detail.append(&dns_card);
 
   let gap2 = gtk::Box::new(gtk::Orientation::Vertical, 0);
   gap2.set_size_request(-1, 12);
   detail.append(&gap2);
 
-  // VPN row with an on/off toggle.
-  detail.append(&toggle_row("network.vpn", false, "VPN", pal.fg, true));
+  // VPN card with an on/off toggle.
+  let vpn_card = card(pal.card);
+  vpn_card.append(&toggle_row("network.vpn", false, "VPN", pal.fg, true));
+  detail.append(&vpn_card);
 
   let gap3 = gtk::Box::new(gtk::Orientation::Vertical, 0);
   gap3.set_size_request(-1, 12);
@@ -155,6 +178,7 @@ pub(crate) fn build_page() -> gtk::Widget {
   wired.set_margin_bottom(2);
   detail.append(&wired);
 
+  let wired_card = card(pal.card);
   let wired_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
   wired_box.set_hexpand(true);
   wired_box.append(&toggle_row(
@@ -171,7 +195,8 @@ pub(crate) fn build_page() -> gtk::Widget {
     pal.fg,
     true,
   ));
-  detail.append(&wired_box);
+  wired_card.append(&wired_box);
+  detail.append(&wired_card);
 
   detail.upcast()
 }
