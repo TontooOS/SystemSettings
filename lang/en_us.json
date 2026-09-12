@@ -59,6 +59,7 @@
   "network.dns.automatic": "Automatic",
   "network.dns.hint": "Empty means automatic (DHCP).",
   "network.dns.invalid": "Enter valid IPv4 addresses, separated by commas.",
+  "network.dns.unavailable": "DNS cannot be changed here (NetworkManager required).",
   "network.vpn": "VPN",
   "network.wired.header": "Wired Networks",
   "network.wired.ethernet": "Ethernet",

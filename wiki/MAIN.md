@@ -32,6 +32,8 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: DNS errors classified: validation failures show the
+  format hint, missing NetworkManager shows an unavailable note.
 - 2026-09-12: DNS really works: click-to-edit DNS card (single big
   title, Enter/focus-out saves, empty means DHCP, `1.1.1.1, 8.8.8.8`
   suggested) applied system-wide through the daemon (`dns_get`/`dns_set`

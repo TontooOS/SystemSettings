@@ -34,6 +34,19 @@ fn span(text: &str, size: u32, weight: &str, color: &str) -> String {
   )
 }
 
+/// User-facing text for a `dns_set` failure: validation errors get the
+/// format hint, missing NetworkManager/hardware gets the unavailable
+/// note, anything else passes through raw.
+fn dns_error_text(e: &str) -> String {
+  if e.contains("invalid IPv4") {
+    format!("{} ({})", lang::t("network.dns.invalid"), e)
+  } else if e.contains("not available") || e.contains("no active connection") {
+    format!("{} ({})", lang::t("network.dns.unavailable"), e)
+  } else {
+    e.to_string()
+  }
+}
+
 /// Rounded card container in the page palette color (same style as the
 /// General/About/Wi-Fi pages).
 fn card(pal_card: &str) -> gtk::Box {
@@ -143,12 +156,7 @@ fn build_dns_card(fg: &'static str, secondary: &'static str, card_color: &str) -
         value_s.set_visible(true);
       }
       Err(e) => {
-        error_s.set_markup(&span(
-          &format!("{} ({})", lang::t("network.dns.invalid"), e),
-          12,
-          "normal",
-          "#FF453A",
-        ));
+        error_s.set_markup(&span(&dns_error_text(&e), 12, "normal", "#FF453A"));
         error_s.set_visible(true);
       }
     }
@@ -339,4 +347,34 @@ pub(crate) fn build_page() -> gtk::Widget {
   detail.append(&wired_card);
 
   detail.upcast()
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn dns_validation_error_gets_format_hint() {
+    let text = dns_error_text("dns set failed: invalid IPv4 address: nope");
+    assert!(text.contains(&lang::t("network.dns.invalid")));
+    assert!(text.contains("invalid IPv4 address: nope"));
+  }
+
+  #[test]
+  fn dns_missing_tool_error_gets_unavailable_note() {
+    let text = dns_error_text("dns set failed: Network hardware or tool not available");
+    assert!(text.contains(&lang::t("network.dns.unavailable")));
+    assert!(!text.contains(&lang::t("network.dns.invalid")));
+  }
+
+  #[test]
+  fn dns_no_connection_error_gets_unavailable_note() {
+    let text = dns_error_text("dns set failed: no active connection");
+    assert!(text.contains(&lang::t("network.dns.unavailable")));
+  }
+
+  #[test]
+  fn dns_other_errors_pass_through() {
+    assert_eq!(dns_error_text("boom"), "boom");
+  }
 }

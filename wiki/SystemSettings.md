@@ -243,8 +243,10 @@ servers (or `network.dns.automatic`) below. Clicking the value turns it
 into a text field prefilled with the current servers (`1.1.1.1, 8.8.8.8`
 when on DHCP); Enter or leaving the field saves through the daemon
 (`dns_set`, empty means DHCP) and the card shows the effective state.
-Invalid input shows `network.dns.invalid` plus the daemon error. The
-daemon applies the servers to the active NetworkManager connection and
+Invalid input shows `network.dns.invalid` plus the daemon error, while a
+missing NetworkManager (or no active connection, e.g. on dev machines
+without `nmcli`) shows `network.dns.unavailable` plus the daemon error.
+The daemon applies the servers to the active NetworkManager connection and
 reactivates it, so the change takes effect system-wide immediately.
 
 | Key | en_us | de_de |
@@ -257,6 +259,7 @@ reactivates it, so the change takes effect system-wide immediately.
 | `network.dns.automatic` | `Automatic` | `Automatisch` |
 | `network.dns.hint` | `Empty means automatic (DHCP).` | `Leer bedeutet automatisch (DHCP).` |
 | `network.dns.invalid` | `Enter valid IPv4 addresses, separated by commas.` | `Gültige IPv4-Adressen eingeben, mit Kommas getrennt.` |
+| `network.dns.unavailable` | `DNS cannot be changed here (NetworkManager required).` | `DNS kann hier nicht geändert werden (NetworkManager erforderlich).` |
 | `network.vpn` | `VPN` | `VPN` |
 | `network.wired.header` | `Wired Networks` | `Kabelnetzwerke` |
 | `network.wired.ethernet` | `Ethernet` | `Ethernet` |
