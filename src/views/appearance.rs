@@ -65,9 +65,9 @@ const ACCENT_COLORS: &[(&str, &str)] = &[
   ("#00C7BE", "teal"),
   ("#30B0C7", "cyan"),
   ("#007AFF", "blue"),
-  ("#5856D6", "indigo"),
-  ("#8E8E93", "gray"),
   ("#BF5AF2", "purple2"),
+  ("#8E8E93", "gray"),
+  ("#5856D6", "indigo"),
 ];
 
 /// Color picker options (display only, shown with "Tinted" selected).
