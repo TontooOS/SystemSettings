@@ -424,20 +424,27 @@ an example value and a Reduce Motion toggle.
 
 ## Appearance page
 
-Example content (`src/views/appearance.rs`): header with the bundled PNG
-icon (`Resources/mf4of5ol1b5a1inx0512nn8mq6wd.png`, sidebar via
-`SidebarIcon::file`, header via `gtk::Image` directly), title and
-subtitle, then example rows (Theme, Accent Color with details).
+Display only (`src/views/appearance.rs`): title header, three theme
+thumbnails (Auto, Light, Dark) using the bundled PNG assets
+(`Resources/auto.png`, `light.png`, `dark.png`, pre-scaled to 80px),
+a color accent row (colored circles, display only) and an icon &
+widget style row (Default, Dark, Clear, Tinted pills, display only).
+No "Text highlight color" or "Folder color" rows. Nothing is
+changeable on this page.
 
 | Key | en_us | de_de |
 |---|---|---|
 | `sidebar.appearance` | `Appearance` | `Erscheinungsbild` |
 | `appearance.title` | `Appearance` | `Erscheinungsbild` |
-| `appearance.header.subtitle` | `Choose the look of windows, buttons and controls.` | `Wähle das Aussehen von Fenstern, Knöpfen und Bedienelementen.` |
-| `appearance.theme` | `Theme` | `Farbschema` |
-| `appearance.theme.detail` | `Automatic` | `Automatisch` |
-| `appearance.accent` | `Accent Color` | `Akzentfarbe` |
-| `appearance.accent.detail` | `Orange` | `Orange` |
+| `appearance.theme.auto` | `Auto` | `Automatisch` |
+| `appearance.theme.light` | `Light` | `Hell` |
+| `appearance.theme.dark` | `Dark` | `Dunkel` |
+| `appearance.theme.section` | `Theme` | `Thema` |
+| `appearance.style.section` | `Icon & widget style` | `Symbol- und Widget-Stil` |
+| `appearance.style.default` | `Default` | `Standard` |
+| `appearance.style.dark` | `Dark` | `Dunkel` |
+| `appearance.style.clear` | `Clear` | `Klar` |
+| `appearance.style.tinted` | `Tinted` | `Getönt` |
 
 ## Desktop & Dock page
 

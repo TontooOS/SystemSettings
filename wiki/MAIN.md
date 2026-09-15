@@ -32,6 +32,9 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-12: Appearance page: three theme thumbnails (Auto/Light/Dark),
+  accent color dots, icon & widget style pills, no Text highlight or
+  Folder color rows. Display only.
 - 2026-09-12: Navigation toolbar uses SF chevron icons (TontooUI
   Toolbar, matching Finder style), no divider line, sticky above
   scroll.
