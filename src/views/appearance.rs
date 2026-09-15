@@ -66,8 +66,8 @@ const ACCENT_COLORS: &[(&str, &str)] = &[
   ("#30B0C7", "cyan"),
   ("#007AFF", "blue"),
   ("#5856D6", "indigo"),
-  ("#BF5AF2", "purple2"),
   ("#8E8E93", "gray"),
+  ("#BF5AF2", "purple2"),
 ];
 
 /// Color picker options (display only, shown with "Tinted" selected).
@@ -213,7 +213,7 @@ pub(crate) fn build_page() -> gtk::Widget {
   let style_row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
   style_row.set_hexpand(true);
   style_row.set_valign(gtk::Align::Center);
-  style_row.set_halign(gtk::Align::Center);
+  style_row.set_halign(gtk::Align::End);
   for option in STYLE_OPTIONS {
     let wrapper = gtk::Box::new(gtk::Orientation::Vertical, 0);
     wrapper.set_halign(gtk::Align::Center);
