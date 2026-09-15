@@ -427,9 +427,9 @@ an example value and a Reduce Motion toggle.
 Display only (`src/views/appearance.rs`): title header, three theme
 thumbnails (Auto, Light, Dark) using the bundled PNG assets
 (`Resources/auto.png`, `light.png`, `dark.png`, pre-scaled to 80px),
-a color accent row (colored circles, display only) and an icon &
-widget style row (Default, Dark, Clear, Tinted pills, display only).
-No "Text highlight color" or "Folder color" rows. Nothing is
+an icon & widget style row (Default, Dark, Tinted icons rendered once
+via CoreIcon from `Resources/app_icon.png`, no "Clear" option) and a
+color picker row (colored circles, display only). Nothing is
 changeable on this page.
 
 | Key | en_us | de_de |
@@ -443,8 +443,8 @@ changeable on this page.
 | `appearance.style.section` | `Icon & widget style` | `Symbol- und Widget-Stil` |
 | `appearance.style.default` | `Default` | `Standard` |
 | `appearance.style.dark` | `Dark` | `Dunkel` |
-| `appearance.style.clear` | `Clear` | `Klar` |
 | `appearance.style.tinted` | `Tinted` | `Getönt` |
+| `appearance.color.section` | `Color` | `Farbe` |
 
 ## Desktop & Dock page
 

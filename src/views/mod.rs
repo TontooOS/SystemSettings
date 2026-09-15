@@ -144,6 +144,42 @@ pub(crate) fn sidebar_style_icon_path(
   Some(path.to_str()?.to_string())
 }
 
+/// Render the app icon (`Resources/app_icon.png`) through CoreIcon with
+/// a colored background. Used for the Appearance icon-style previews.
+/// `tag` scopes the cache file, `bg` is the tile fill.
+pub(crate) fn app_icon_style_path(tag: &str, bg: (u8, u8, u8)) -> Option<String> {
+  let icon_path = format!("{}/Resources/app_icon.png", env!("CARGO_MANIFEST_DIR"));
+  if !std::path::Path::new(&icon_path).is_file() {
+    return None;
+  }
+  point_to_coreicon();
+
+  let path = std::env::temp_dir().join(format!(
+    "settings_iconstyle_{}_{}_{:02x}{:02x}{:02x}.png",
+    "appicon", tag, bg.0, bg.1, bg.2
+  ));
+  if path.exists() {
+    return Some(path.to_str()?.to_string());
+  }
+
+  let fill = CoreIcon::Color::new(
+    bg.0 as f32 / 255.0,
+    bg.1 as f32 / 255.0,
+    bg.2 as f32 / 255.0,
+    1.0,
+  );
+  let canvas = CoreIcon::generator::IconCanvas::new()
+    .background(CoreIcon::generator::Background::color(fill))
+    .corner_radius(220.0)
+    .layer(
+      CoreIcon::generator::Layer::new(CoreIcon::generator::LayerContent::image(icon_path))
+        .position(60.0, 60.0)
+        .size(904.0, 904.0),
+    );
+  canvas.save(&path).ok()?;
+  Some(path.to_str()?.to_string())
+}
+
 /// Render an SF Symbol as a fully round, slightly transparent avatar disc
 /// (gray fill at low alpha, white glyph). Returns the cached PNG path.
 /// Unlike the sidebar tiles this has no opaque background, so it reads

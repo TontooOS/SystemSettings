@@ -55,12 +55,26 @@ const ACCENT_COLORS: &[(&str, &str)] = &[
   ("#8E8E93", "gray"),
 ];
 
-/// Icon & widget style options (display only).
-const STYLE_OPTIONS: &[(&str, &str)] = &[
-  ("appearance.style.default", "Default"),
-  ("appearance.style.dark", "Dark"),
-  ("appearance.style.clear", "Clear"),
-  ("appearance.style.tinted", "Tinted"),
+/// Icon & widget style options (display only, rendered via CoreIcon).
+const STYLE_OPTIONS: &[(&str, &str, (u8, u8, u8))] = &[
+  ("appearance.style.default", "Default", (0, 122, 255)),
+  ("appearance.style.dark", "Dark", (28, 28, 30)),
+  ("appearance.style.tinted", "Tinted", (88, 86, 214)),
+];
+
+/// Color picker options (display only, shown with "Tinted" selected).
+const COLOR_OPTIONS: &[(&str, &str)] = &[
+  ("#AF52DE", "purple"),
+  ("#FF2D55", "pink"),
+  ("#FF9500", "orange"),
+  ("#FFCC00", "yellow"),
+  ("#34C759", "green"),
+  ("#00C7BE", "teal"),
+  ("#30B0C7", "cyan"),
+  ("#007AFF", "blue"),
+  ("#5856D6", "indigo"),
+  ("#BF5AF2", "purple2"),
+  ("#8E8E93", "gray"),
 ];
 
 /// Rounded card container in the page palette color (same style as the
@@ -169,31 +183,54 @@ pub(crate) fn build_page() -> gtk::Widget {
   color_card.append(&color_row);
   detail.append(&color_card);
 
-  // Icon & widget style row: display only.
+  // Icon & widget style row: rendered icons via CoreIcon.
   detail.append(&section_label(
     &lang::t("appearance.style.section"),
     pal.secondary,
   ));
   let style_card = card(pal.card);
-  let style_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+  let style_row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
   style_row.set_hexpand(true);
   style_row.set_valign(gtk::Align::Center);
-  style_row.set_margin_top(2);
-  style_row.set_margin_bottom(2);
-  for (key, _fallback) in STYLE_OPTIONS {
-    let pill = markup_label(&lang::t(key), 12, "normal", pal.fg);
-    pill.set_halign(gtk::Align::Center);
-    pill.set_xalign(0.5);
-    apply_css(
-      &pill,
-      &format!(
-        "label {{ background-color: rgba(128,128,128,0.20); border-radius: 8px; padding: 6px 12px; }}",
-      ),
-    );
-    style_row.append(&pill);
+  style_row.set_halign(gtk::Align::Center);
+  for (key, _fallback, bg) in STYLE_OPTIONS {
+    let vbox = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    vbox.set_halign(gtk::Align::Center);
+    if let Some(icon_path) = super::app_icon_style_path(key, *bg) {
+      let picture = super::wallpaper::cached_thumb_fit(
+        std::path::Path::new(&icon_path),
+        48,
+        48,
+      )
+      .unwrap_or_else(|| std::path::PathBuf::from(icon_path));
+      if let Some(img) = gtk::Picture::for_filename(picture).dynamic_cast::<gtk::Widget>().ok() {
+        img.set_size_request(48, 48);
+        vbox.append(&img);
+      }
+    }
+    let label = markup_label(&lang::t(key), 12, "normal", pal.fg);
+    label.set_halign(gtk::Align::Center);
+    label.set_xalign(0.5);
+    vbox.append(&label);
+    style_row.append(&vbox);
   }
   style_card.append(&style_row);
   detail.append(&style_card);
+
+  // Color picker section (display only, shown below icon style).
+  detail.append(&section_label(
+    &lang::t("appearance.color.section"),
+    pal.secondary,
+  ));
+  let color_card = card(pal.card);
+  let color_row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+  color_row.set_hexpand(true);
+  color_row.set_valign(gtk::Align::Center);
+  for (hex, _name) in COLOR_OPTIONS {
+    color_row.append(&color_dot(hex, 12));
+  }
+  color_card.append(&color_row);
+  detail.append(&color_card);
 
   detail.upcast()
 }
