@@ -1,9 +1,11 @@
 //! Appearance settings page for SystemSettings (display only).
 //!
-//! Three theme cards (Auto, Light, Dark) using the bundled PNG assets,
-//! a color accent row and an icon & widget style row. Nothing is
-//! changeable; the page is display-only. All text uses SF Pro Display
-//! and both `en_us` and `de_de` strings.
+//! Three theme cards (Auto, Light, Dark) using the bundled PNG assets
+//! with rounded corners and a blue selection border, a color accent row,
+//! an icon & widget style row (Default, Dark, Tinted rendered via
+//! CoreIcon from `app_icon.png`, Tinted uses green), and a color
+//! picker. Nothing is changeable; the page is display-only. All text
+//! uses SF Pro Display and both `en_us` and `de_de` strings.
 
 use super::{is_dark, markup_label, palette};
 use crate::lang;
@@ -40,6 +42,19 @@ const THEMES: &[ThemeCard] = &[
   },
 ];
 
+/// Icon & widget style options: label, CoreIcon bg color, whether selected.
+struct StyleOption {
+  key: &'static str,
+  bg: (u8, u8, u8),
+  selected: bool,
+}
+
+const STYLE_OPTIONS: &[StyleOption] = &[
+  StyleOption { key: "appearance.style.default", bg: (0, 122, 255), selected: true },
+  StyleOption { key: "appearance.style.dark", bg: (28, 28, 30), selected: false },
+  StyleOption { key: "appearance.style.tinted", bg: (52, 199, 89), selected: false },
+];
+
 /// Accent color dots displayed in the color row (display only).
 const ACCENT_COLORS: &[(&str, &str)] = &[
   ("#AF52DE", "purple"),
@@ -53,13 +68,6 @@ const ACCENT_COLORS: &[(&str, &str)] = &[
   ("#5856D6", "indigo"),
   ("#BF5AF2", "purple2"),
   ("#8E8E93", "gray"),
-];
-
-/// Icon & widget style options (display only, rendered via CoreIcon).
-const STYLE_OPTIONS: &[(&str, &str, (u8, u8, u8))] = &[
-  ("appearance.style.default", "Default", (0, 122, 255)),
-  ("appearance.style.dark", "Dark", (28, 28, 30)),
-  ("appearance.style.tinted", "Tinted", (88, 86, 214)),
 ];
 
 /// Color picker options (display only, shown with "Tinted" selected).
@@ -77,8 +85,11 @@ const COLOR_OPTIONS: &[(&str, &str)] = &[
   ("#8E8E93", "gray"),
 ];
 
-/// Rounded card container in the page palette color (same style as the
-/// other pages).
+/// Blue selection border CSS for theme and style cards.
+const SEL_BORDER: &str = "border: 2px solid #007AFF; border-radius: 10px;";
+const NO_BORDER: &str = "border: 2px solid transparent; border-radius: 10px;";
+
+/// Rounded card container in the page palette color.
 fn card(pal_card: &str) -> gtk::Box {
   let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
   card.set_hexpand(true);
@@ -114,8 +125,7 @@ fn color_dot(hex: &str, radius: i32) -> gtk::Box {
   dot
 }
 
-/// Pre-scaled theme thumbnail at the display size (matches the other
-/// fixed-size artwork pattern).
+/// Pre-scaled theme thumbnail at the display size with rounded corners.
 fn theme_thumbnail(name: &str, px: i32) -> Option<gtk::Picture> {
   let path = format!("{}/Resources/{}", env!("CARGO_MANIFEST_DIR"), name);
   if !std::path::Path::new(&path).is_file() {
@@ -129,6 +139,7 @@ fn theme_thumbnail(name: &str, px: i32) -> Option<gtk::Picture> {
   picture.set_vexpand(false);
   picture.set_can_shrink(true);
   picture.set_size_request(px, px);
+  apply_css(&picture, "picture { border-radius: 10px; }");
   Some(picture)
 }
 
@@ -150,23 +161,33 @@ pub(crate) fn build_page() -> gtk::Widget {
   title.set_margin_bottom(4);
   detail.append(&title);
 
-  // Three theme thumbnails: Auto, Light, Dark.
+  // Three theme thumbnails: Auto, Light, Dark with selection border.
   let theme_card = card(pal.card);
   let theme_row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
   theme_row.set_hexpand(true);
   theme_row.set_valign(gtk::Align::Center);
   theme_row.set_halign(gtk::Align::Center);
-  for theme in THEMES {
-    let vbox = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    vbox.set_halign(gtk::Align::Center);
+  for (index, theme) in THEMES.iter().enumerate() {
+    let wrapper = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    wrapper.set_halign(gtk::Align::Center);
+    let border_css = if index == 0 { SEL_BORDER } else { NO_BORDER };
+    apply_css(&wrapper, border_css);
+    wrapper.set_margin_top(2);
+    wrapper.set_margin_bottom(2);
+    wrapper.set_margin_start(2);
+    wrapper.set_margin_end(2);
+
+    let inner = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    inner.set_halign(gtk::Align::Center);
     if let Some(picture) = theme_thumbnail(theme.png, 80) {
-      vbox.append(&picture);
+      inner.append(&picture);
     }
     let label = markup_label(&lang::t(theme.key), 12, "normal", pal.fg);
     label.set_halign(gtk::Align::Center);
     label.set_xalign(0.5);
-    vbox.append(&label);
-    theme_row.append(&vbox);
+    inner.append(&label);
+    wrapper.append(&inner);
+    theme_row.append(&wrapper);
   }
   theme_card.append(&theme_row);
   detail.append(&theme_card);
@@ -183,7 +204,7 @@ pub(crate) fn build_page() -> gtk::Widget {
   color_card.append(&color_row);
   detail.append(&color_card);
 
-  // Icon & widget style row: rendered icons via CoreIcon.
+  // Icon & widget style row: rendered icons via CoreIcon, one selected.
   detail.append(&section_label(
     &lang::t("appearance.style.section"),
     pal.secondary,
@@ -193,10 +214,19 @@ pub(crate) fn build_page() -> gtk::Widget {
   style_row.set_hexpand(true);
   style_row.set_valign(gtk::Align::Center);
   style_row.set_halign(gtk::Align::Center);
-  for (key, _fallback, bg) in STYLE_OPTIONS {
-    let vbox = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    vbox.set_halign(gtk::Align::Center);
-    if let Some(icon_path) = super::app_icon_style_path(key, *bg) {
+  for option in STYLE_OPTIONS {
+    let wrapper = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    wrapper.set_halign(gtk::Align::Center);
+    let border_css = if option.selected { SEL_BORDER } else { NO_BORDER };
+    apply_css(&wrapper, border_css);
+    wrapper.set_margin_top(2);
+    wrapper.set_margin_bottom(2);
+    wrapper.set_margin_start(2);
+    wrapper.set_margin_end(2);
+
+    let inner = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    inner.set_halign(gtk::Align::Center);
+    if let Some(icon_path) = super::app_icon_style_path(option.key, option.bg) {
       let picture = super::wallpaper::cached_thumb_fit(
         std::path::Path::new(&icon_path),
         48,
@@ -205,32 +235,34 @@ pub(crate) fn build_page() -> gtk::Widget {
       .unwrap_or_else(|| std::path::PathBuf::from(icon_path));
       if let Some(img) = gtk::Picture::for_filename(picture).dynamic_cast::<gtk::Widget>().ok() {
         img.set_size_request(48, 48);
-        vbox.append(&img);
+        apply_css(&img, "picture { border-radius: 10px; }");
+        inner.append(&img);
       }
     }
-    let label = markup_label(&lang::t(key), 12, "normal", pal.fg);
+    let label = markup_label(&lang::t(option.key), 12, "normal", pal.fg);
     label.set_halign(gtk::Align::Center);
     label.set_xalign(0.5);
-    vbox.append(&label);
-    style_row.append(&vbox);
+    inner.append(&label);
+    wrapper.append(&inner);
+    style_row.append(&wrapper);
   }
   style_card.append(&style_row);
   detail.append(&style_card);
 
-  // Color picker section (display only, shown below icon style).
+  // Color picker section (display only).
   detail.append(&section_label(
     &lang::t("appearance.color.section"),
     pal.secondary,
   ));
-  let color_card = card(pal.card);
+  let picker_card = card(pal.card);
   let color_row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
   color_row.set_hexpand(true);
   color_row.set_valign(gtk::Align::Center);
   for (hex, _name) in COLOR_OPTIONS {
     color_row.append(&color_dot(hex, 12));
   }
-  color_card.append(&color_row);
-  detail.append(&color_card);
+  picker_card.append(&color_row);
+  detail.append(&picker_card);
 
   detail.upcast()
 }
@@ -257,5 +289,11 @@ mod tests {
       assert!(hex.starts_with('#'));
       assert_eq!(hex.len(), 7);
     }
+  }
+
+  #[test]
+  fn exactly_one_style_selected() {
+    let count = STYLE_OPTIONS.iter().filter(|s| s.selected).count();
+    assert_eq!(count, 1, "exactly one style should be selected");
   }
 }

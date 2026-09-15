@@ -154,9 +154,10 @@ pub(crate) fn app_icon_style_path(tag: &str, bg: (u8, u8, u8)) -> Option<String>
   }
   point_to_coreicon();
 
+  // Tag includes the color so different variants get separate caches.
   let path = std::env::temp_dir().join(format!(
-    "settings_iconstyle_{}_{}_{:02x}{:02x}{:02x}.png",
-    "appicon", tag, bg.0, bg.1, bg.2
+    "settings_iconstyle_{}_{:02x}{:02x}{:02x}.png",
+    tag, bg.0, bg.1, bg.2
   ));
   if path.exists() {
     return Some(path.to_str()?.to_string());
