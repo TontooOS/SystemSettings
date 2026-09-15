@@ -81,11 +81,12 @@ containers leave the window. The sidebar keeps its own blue highlight.
 
 ## Toolbar
 
-Above the detail content sits a toolbar: one joined segment of two
-TontooUI `Button`s (text chevrons `‹`/`›`, `Glass` style, half-capsule
-each via per-button `.seg-first`/`.seg-last` CSS attached directly to
-the buttons, no wrapper background), a separator and
-the current page title (bold 15pt). Back walks
+Above the detail content sits a toolbar: a TontooUI `Toolbar` with two
+`ToolbarItem`s (`chevron.backward`, `chevron.forward`) sharing one glass
+capsule background (SF icon glyphs, matching the Finder navigation),
+plus the current page title (bold 15pt). No divider line between
+buttons and title. The toolbar sits outside any `ScrolledWindow`, so it
+stays visible when the page content scrolls. Back walks
 the selection history, forward re-enters branched entries; both disable
 at the history ends. Layout only, no app design dependency.
 

@@ -16,8 +16,7 @@
 
 use super::{WIFI_BLUE, is_dark};
 use crate::lang;
-use crate::TontooUI::{Button, ButtonStyle, Sidebar, SidebarIcon};
-use crate::UIKit::apply_css;
+use crate::TontooUI::{Sidebar, SidebarIcon, Toolbar, ToolbarItem};
 use crate::UIKit::prelude::*;
 use crate::UIKit::widget::{WidgetId, next_widget_id};
 use gtk::prelude::*;
@@ -667,54 +666,37 @@ impl Widget for SettingsRoot {
     toolbar.set_margin_start(24);
     toolbar.set_margin_end(24);
 
-    // Back/forward segment: two TontooUI Glass buttons joined into one
-    // filled control. The radius override is attached to each button
-    // directly (ancestor providers do not reach descendants here).
-    let chevron_tint = || {
-      if dark {
-        Color::from_rgb(245, 245, 247)
-      } else {
-        Color::from_rgb(30, 30, 30)
-      }
-    };
-    let seg = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    seg.set_valign(gtk::Align::Center);
+    // Back/forward segment: TontooUI Glass toolbar with SF chevron
+    // icons (matching the Finder navigation style).
     let nav_back = self.nav.clone();
-    let back_button = Button::new("‹")
-      .style(ButtonStyle::Glass)
-      .tint(chevron_tint())
-      .on_click(move || {
-        nav_back.lock().unwrap().back();
-      });
     let nav_forward = self.nav.clone();
-    let forward_button = Button::new("›")
-      .style(ButtonStyle::Glass)
-      .tint(chevron_tint())
-      .on_click(move || {
+    let nav_toolbar = Toolbar::new()
+      .item(ToolbarItem::new("chevron.backward").on_click(move || {
+        nav_back.lock().unwrap().back();
+      }))
+      .item(ToolbarItem::new("chevron.forward").on_click(move || {
         nav_forward.lock().unwrap().forward();
-      });
-    let back = back_button.to_gtk();
-    let forward = forward_button.to_gtk();
-    apply_css(
-      &back,
-      "button.seg-first { border-top-right-radius: 0px; border-bottom-right-radius: 0px; border-right: none; }",
-    );
-    apply_css(
-      &forward,
-      "button.seg-last { border-top-left-radius: 0px; border-bottom-left-radius: 0px; }",
-    );
-    back.add_css_class("seg-first");
-    forward.add_css_class("seg-last");
-    back.set_sensitive(false);
-    forward.set_sensitive(false);
-    back.set_valign(gtk::Align::Center);
-    forward.set_valign(gtk::Align::Center);
-    seg.append(&back);
-    seg.append(&forward);
-    toolbar.append(&seg);
-
-    let separator = gtk::Separator::new(gtk::Orientation::Vertical);
-    toolbar.append(&separator);
+      }));
+    toolbar.append(&nav_toolbar.to_gtk());
+    // Extract the two GTK buttons from the TontooUI toolbar widget tree
+    // so the poller can toggle their sensitivity on page change.
+    let mut nav_buttons: Vec<gtk::Button> = Vec::new();
+    if let Some(toolbar_w) = toolbar.first_child() {
+      if let Some(capsule) = toolbar_w.first_child() {
+        let mut child = capsule.first_child();
+        while let Some(w) = child {
+          let next = w.next_sibling();
+          if let Ok(btn) = w.clone().downcast::<gtk::Button>() {
+            nav_buttons.push(btn);
+          }
+          child = next;
+        }
+      }
+    }
+    let back_button = nav_buttons.first().cloned();
+    let forward_button = nav_buttons.get(1).cloned();
+    back_button.as_ref().map(|b| { b.set_sensitive(false); b.set_valign(gtk::Align::Center); });
+    forward_button.as_ref().map(|b| { b.set_sensitive(false); b.set_valign(gtk::Align::Center); });
 
     let title = gtk::Label::new(None);
     title.set_use_markup(true);
@@ -773,8 +755,8 @@ impl Widget for SettingsRoot {
     let column_poller = column.clone();
     let detail_poller = detail.clone();
     let title_poller = title.clone();
-    let back_poller = back.clone();
-    let forward_poller = forward.clone();
+    let back_button_poller = back_button.clone();
+    let forward_button_poller = forward_button.clone();
     let wifi_poller = self.wifi_page.clone();
     let bluetooth_poller = self.bluetooth_page.clone();
     let network_poller = self.network_page.clone();
@@ -858,8 +840,8 @@ impl Widget for SettingsRoot {
         ));
         title_poller.set_markup(&title_markup(want, fg_poller));
       }
-      back_poller.set_sensitive(can_back);
-      forward_poller.set_sensitive(can_forward);
+      back_button_poller.as_ref().map(|b| b.set_sensitive(can_back));
+      forward_button_poller.as_ref().map(|b| b.set_sensitive(can_forward));
       glib::ControlFlow::Continue
     });
 
