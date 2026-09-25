@@ -32,6 +32,10 @@ See [SystemSettings.md](SystemSettings.md) for details.
 
 ## Changelog
 
+- 2026-09-15: Appearance icon & widget style via the CoreIcon `AppIcon`
+  pipeline (Default/Dark/Tinted Light/Tinted Dark with full Liquid
+  Glass finish instead of a colored border; new `tinted_light` /
+  `tinted_dark` strings in `en_us` / `de_de`).
 - 2026-09-12: Appearance page: three theme thumbnails, CoreIcon-rendered
   style icons (Default/Dark/Tinted, no Clear), color picker, all
   display only.

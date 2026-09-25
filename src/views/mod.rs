@@ -144,40 +144,63 @@ pub(crate) fn sidebar_style_icon_path(
   Some(path.to_str()?.to_string())
 }
 
-/// Render the app icon (`Resources/app_icon.png`) through CoreIcon with
-/// a colored background. Used for the Appearance icon-style previews.
-/// `tag` scopes the cache file, `bg` is the tile fill.
-pub(crate) fn app_icon_style_path(tag: &str, bg: (u8, u8, u8)) -> Option<String> {
+/// Icon & widget style variant for the Appearance previews.
+/// Maps 1:1 onto the CoreIcon `AppIcon` pipeline (full recolor + Liquid
+/// Glass finish, not just a colored border).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AppIconStyle {
+  /// Original colors, light background (`AppIcon::from_file` default).
+  Default,
+  /// Dark `#1d1d1d` background, artwork colors kept (`.dark()`).
+  Dark,
+  /// Green-tinted artwork on the original background (`.tint(green)`).
+  TintedLight,
+  /// Green-tinted artwork on the dark background (`.dark().tint(green)`).
+  TintedDark,
+}
+
+impl AppIconStyle {
+  fn tag(self) -> &'static str {
+    match self {
+      AppIconStyle::Default => "default",
+      AppIconStyle::Dark => "dark",
+      AppIconStyle::TintedLight => "tinted_light",
+      AppIconStyle::TintedDark => "tinted_dark",
+    }
+  }
+}
+
+/// Render the app icon (`Resources/app_icon.png`) through the CoreIcon
+/// `AppIcon` pipeline with the full Liquid Glass finish. Used for the
+/// Appearance icon-style previews (Default / Dark / Tinted Light /
+/// Tinted Dark). Returns the cached PNG path.
+pub(crate) fn app_icon_style_path(style: AppIconStyle) -> Option<String> {
   let icon_path = format!("{}/Resources/app_icon.png", env!("CARGO_MANIFEST_DIR"));
   if !std::path::Path::new(&icon_path).is_file() {
     return None;
   }
-  point_to_coreicon();
 
-  // Tag includes the color so different variants get separate caches.
-  let path = std::env::temp_dir().join(format!(
-    "settings_iconstyle_{}_{:02x}{:02x}{:02x}.png",
-    tag, bg.0, bg.1, bg.2
-  ));
+  // New cache prefix: the previous `settings_iconstyle_*` files only
+  // colored the border and must not be reused.
+  let path = std::env::temp_dir().join(format!("settings_appicon_{}.png", style.tag()));
   if path.exists() {
     return Some(path.to_str()?.to_string());
   }
 
-  let fill = CoreIcon::Color::new(
-    bg.0 as f32 / 255.0,
-    bg.1 as f32 / 255.0,
-    bg.2 as f32 / 255.0,
+  let green = CoreIcon::Color::from_hex("#34C759").unwrap_or(CoreIcon::Color::new(
+    52.0 / 255.0,
+    199.0 / 255.0,
+    89.0 / 255.0,
     1.0,
-  );
-  let canvas = CoreIcon::generator::IconCanvas::new()
-    .background(CoreIcon::generator::Background::color(fill))
-    .corner_radius(220.0)
-    .layer(
-      CoreIcon::generator::Layer::new(CoreIcon::generator::LayerContent::image(icon_path))
-        .position(60.0, 60.0)
-        .size(904.0, 904.0),
-    );
-  canvas.save(&path).ok()?;
+  ));
+  let app_icon = CoreIcon::generator::AppIcon::from_file(&icon_path);
+  let app_icon = match style {
+    AppIconStyle::Default => app_icon.light(),
+    AppIconStyle::Dark => app_icon.dark(),
+    AppIconStyle::TintedLight => app_icon.tint(green),
+    AppIconStyle::TintedDark => app_icon.dark().tint(green),
+  };
+  app_icon.save(&path).ok()?;
   Some(path.to_str()?.to_string())
 }
 

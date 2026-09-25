@@ -427,10 +427,12 @@ an example value and a Reduce Motion toggle.
 Display only (`src/views/appearance.rs`): title header, three theme
 thumbnails (Auto, Light, Dark) using the bundled PNG assets
 (`Resources/auto.png`, `light.png`, `dark.png`, pre-scaled to 80px),
-an icon & widget style row (Default, Dark, Tinted icons rendered once
-via CoreIcon from `Resources/app_icon.png`, no "Clear" option) and a
-color picker row (colored circles, display only). Nothing is
-changeable on this page.
+an icon & widget style row (Default, Dark, Tinted Light, Tinted Dark
+icons rendered once via the CoreIcon `AppIcon` pipeline from
+`Resources/app_icon.png` with the full Liquid Glass finish: Default
+keeps the original colors, Dark uses the `#1d1d1d` background, both
+Tinted variants use green) and a color picker row (colored circles,
+display only). Nothing is changeable on this page.
 
 | Key | en_us | de_de |
 |---|---|---|
@@ -443,7 +445,8 @@ changeable on this page.
 | `appearance.style.section` | `Icon & widget style` | `Symbol- und Widget-Stil` |
 | `appearance.style.default` | `Default` | `Standard` |
 | `appearance.style.dark` | `Dark` | `Dunkel` |
-| `appearance.style.tinted` | `Tinted` | `Getönt` |
+| `appearance.style.tinted_light` | `Tinted Light` | `Hell getönt` |
+| `appearance.style.tinted_dark` | `Tinted Dark` | `Dunkel getönt` |
 | `appearance.color.section` | `Color` | `Farbe` |
 
 ## Desktop & Dock page

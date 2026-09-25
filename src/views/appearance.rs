@@ -2,10 +2,11 @@
 //!
 //! Three theme cards (Auto, Light, Dark) using the bundled PNG assets
 //! with rounded corners and a blue selection border, a color accent row,
-//! an icon & widget style row (Default, Dark, Tinted rendered via
-//! CoreIcon from `app_icon.png`, Tinted uses green), and a color
-//! picker. Nothing is changeable; the page is display-only. All text
-//! uses SF Pro Display and both `en_us` and `de_de` strings.
+//! an icon & widget style row (Default, Dark, Tinted Light, Tinted Dark
+//! rendered via the CoreIcon `AppIcon` pipeline from `app_icon.png`,
+//! both Tinted variants use green), and a color picker. Nothing is
+//! changeable; the page is display-only. All text uses SF Pro Display
+//! and both `en_us` and `de_de` strings.
 
 use super::{is_dark, markup_label, palette};
 use crate::lang;
@@ -42,17 +43,19 @@ const THEMES: &[ThemeCard] = &[
   },
 ];
 
-/// Icon & widget style options: label, CoreIcon bg color, whether selected.
+/// Icon & widget style options: label, CoreIcon `AppIcon` variant,
+/// whether selected.
 struct StyleOption {
   key: &'static str,
-  bg: (u8, u8, u8),
+  style: super::AppIconStyle,
   selected: bool,
 }
 
 const STYLE_OPTIONS: &[StyleOption] = &[
-  StyleOption { key: "appearance.style.default", bg: (0, 122, 255), selected: true },
-  StyleOption { key: "appearance.style.dark", bg: (28, 28, 30), selected: false },
-  StyleOption { key: "appearance.style.tinted", bg: (52, 199, 89), selected: false },
+  StyleOption { key: "appearance.style.default", style: super::AppIconStyle::Default, selected: true },
+  StyleOption { key: "appearance.style.dark", style: super::AppIconStyle::Dark, selected: false },
+  StyleOption { key: "appearance.style.tinted_light", style: super::AppIconStyle::TintedLight, selected: false },
+  StyleOption { key: "appearance.style.tinted_dark", style: super::AppIconStyle::TintedDark, selected: false },
 ];
 
 /// Accent color dots displayed in the color row (display only).
@@ -226,7 +229,7 @@ pub(crate) fn build_page() -> gtk::Widget {
 
     let inner = gtk::Box::new(gtk::Orientation::Vertical, 4);
     inner.set_halign(gtk::Align::Center);
-    if let Some(icon_path) = super::app_icon_style_path(option.key, option.bg) {
+    if let Some(icon_path) = super::app_icon_style_path(option.style) {
       let picture = super::wallpaper::cached_thumb_fit(
         std::path::Path::new(&icon_path),
         48,
