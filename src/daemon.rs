@@ -547,7 +547,7 @@ fn default_os_codename() -> String {
 }
 
 fn default_os_version() -> String {
-    "26.1.0".to_string()
+    "27.0.0".to_string()
 }
 
 impl Default for OsInfo {
@@ -1052,12 +1052,12 @@ mod tests {
             path.clone(),
             serde_json::json!({"id": 1, "ok": true, "result":
                 {"os": {"name": "TontooOS", "display_name": "TontooOS Seal",
-                        "codename": "Seal", "version": "26.1.0", "beta": false}}}),
+                        "codename": "Seal", "version": "27.0.0", "beta": false}}}),
         );
         let info = get_os().unwrap();
         assert_eq!(info.display_name, "TontooOS Seal");
         assert_eq!(info.codename, "Seal");
-        assert_eq!(info.version, "26.1.0");
+        assert_eq!(info.version, "27.0.0");
         std::env::remove_var("SETTINGS_SOCKET");
     }
 
