@@ -1,28 +1,24 @@
 //! Appearance settings page for SystemSettings (display only).
 //!
-//! Three theme cards (Auto, Light, Dark) using the bundled PNG assets
-//! with rounded corners and a blue selection border, a color accent row,
-//! an icon & widget style row (Default, Dark, Tinted Light, Tinted Dark
-//! rendered via the CoreIcon `AppIcon` pipeline from `app_icon.png`,
-//! both Tinted variants use green), and a color picker. Nothing is
-//! changeable; the page is display-only. All text uses SF Pro Display
-//! and both `en_us` and `de_de` strings.
+//! Three theme thumbnails (Auto, Light, Dark) from the bundled PNG
+//! assets, an accent color row, an icon and widget style row rendered
+//! through the CoreIcon `AppIcon` pipeline (Default / Dark / Tinted Light
+//! / Tinted Dark) and a color row. Nothing is changeable: the page shows
+//! what TontooUI is currently themed with.
 
-use super::{is_dark, markup_label, palette};
+use std::path::PathBuf;
+
 use crate::lang;
-use crate::UIKit::apply_css;
-use gtk::prelude::*;
+use crate::views::{
+  caption, header_subtitle, Nav, PageView, Skin, APPEARANCE, BLOCK_GAP,
+};
+use crate::CoreIcon;
+use crate::TontooUI::elements::{
+  Align, BasicText, Circle, FileImage, HStack, ImageFit, SFSymbolImage, Spacer, TextAlignment,
+  VStack,
+};
 
-/// Bundled Appearance artwork for the sidebar icon
-/// (`Resources/mf4of5ol1b5a1inx0512nn8mq6wd.png`).
-pub(crate) fn appearance_png() -> String {
-  format!(
-    "{}/Resources/mf4of5ol1b5a1inx0512nn8mq6wd.png",
-    env!("CARGO_MANIFEST_DIR")
-  )
-}
-
-/// One of the three theme thumbnails (Auto / Light / Dark).
+/// One of the three theme thumbnails.
 struct ThemeCard {
   key: &'static str,
   png: &'static str,
@@ -43,231 +39,180 @@ const THEMES: &[ThemeCard] = &[
   },
 ];
 
-/// Icon & widget style options: label, CoreIcon `AppIcon` variant,
-/// whether selected.
+/// Icon and widget style options: label plus CoreIcon `AppIcon` variant.
 struct StyleOption {
   key: &'static str,
-  style: super::AppIconStyle,
-  selected: bool,
+  style: AppIconStyle,
 }
 
 const STYLE_OPTIONS: &[StyleOption] = &[
-  StyleOption { key: "appearance.style.default", style: super::AppIconStyle::Default, selected: true },
-  StyleOption { key: "appearance.style.dark", style: super::AppIconStyle::Dark, selected: false },
-  StyleOption { key: "appearance.style.tinted_light", style: super::AppIconStyle::TintedLight, selected: false },
-  StyleOption { key: "appearance.style.tinted_dark", style: super::AppIconStyle::TintedDark, selected: false },
+  StyleOption { key: "appearance.style.default", style: AppIconStyle::Default },
+  StyleOption { key: "appearance.style.dark", style: AppIconStyle::Dark },
+  StyleOption { key: "appearance.style.tinted_light", style: AppIconStyle::TintedLight },
+  StyleOption { key: "appearance.style.tinted_dark", style: AppIconStyle::TintedDark },
 ];
 
-/// Accent color dots displayed in the color row (display only).
-const ACCENT_COLORS: &[(&str, &str)] = &[
-  ("#AF52DE", "purple"),
-  ("#FF2D55", "pink"),
-  ("#FF9500", "orange"),
-  ("#FFCC00", "yellow"),
-  ("#34C759", "green"),
-  ("#00C7BE", "teal"),
-  ("#30B0C7", "cyan"),
-  ("#007AFF", "blue"),
-  ("#BF5AF2", "purple2"),
-  ("#8E8E93", "gray"),
-  ("#5856D6", "indigo"),
+/// Accent color dots in dropdown order, matching the TontooUI `Accent`
+/// variants the theme daemon can report.
+const ACCENT_COLORS: &[&str] = &[
+  "#AF52DE", "#FF2D55", "#FF9500", "#FFCC00", "#34C759", "#00C7BE", "#30B0C7", "#007AFF", "#BF5AF2",
+  "#5856D6", "#8E8E93",
 ];
 
-/// Color picker options (display only, shown with "Tinted" selected).
-const COLOR_OPTIONS: &[(&str, &str)] = &[
-  ("#AF52DE", "purple"),
-  ("#FF2D55", "pink"),
-  ("#FF9500", "orange"),
-  ("#FFCC00", "yellow"),
-  ("#34C759", "green"),
-  ("#00C7BE", "teal"),
-  ("#30B0C7", "cyan"),
-  ("#007AFF", "blue"),
-  ("#5856D6", "indigo"),
-  ("#BF5AF2", "purple2"),
-  ("#8E8E93", "gray"),
-];
-
-/// Blue selection border CSS for theme and style cards.
-const SEL_BORDER: &str = "border: 2px solid #007AFF; border-radius: 10px;";
-const NO_BORDER: &str = "border: 2px solid transparent; border-radius: 10px;";
-
-/// Rounded card container in the page palette color.
-fn card(pal_card: &str) -> gtk::Box {
-  let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  card.set_hexpand(true);
-  apply_css(
-    &card,
-    &format!(
-      "box {{ background-color: {}; border-radius: 12px; padding: 12px 16px; }}",
-      pal_card
-    ),
-  );
-  card
+/// Icon and widget style variant for the previews. Maps 1:1 onto the
+/// CoreIcon `AppIcon` pipeline (full recolor plus Liquid Glass finish,
+/// not just a colored border).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AppIconStyle {
+  /// Original colors, light background (`AppIcon::from_file` default).
+  Default,
+  /// Dark background, artwork colors kept (`.dark()`).
+  Dark,
+  /// Green-tinted artwork on the original background (`.tint(green)`).
+  TintedLight,
+  /// Green-tinted artwork on the dark background (`.dark().tint(green)`).
+  TintedDark,
 }
 
-/// Small section header.
-fn section_label(title: &str, secondary: &str) -> gtk::Widget {
-  let section = markup_label(title, 12, "normal", secondary);
-  section.set_halign(gtk::Align::Start);
-  section.set_margin_bottom(2);
-  section.upcast()
+impl AppIconStyle {
+  fn tag(self) -> &'static str {
+    match self {
+      AppIconStyle::Default => "default",
+      AppIconStyle::Dark => "dark",
+      AppIconStyle::TintedLight => "tinted_light",
+      AppIconStyle::TintedDark => "tinted_dark",
+    }
+  }
 }
 
-/// One colored circle (accent color dot).
-fn color_dot(hex: &str, radius: i32) -> gtk::Box {
-  let dot = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  dot.set_size_request(radius * 2, radius * 2);
-  apply_css(
-    &dot,
-    &format!(
-      "box {{ background-color: {}; border-radius: {}px; }}",
-      hex, radius
-    ),
-  );
-  dot
+/// Point CoreIcon at the development asset folder when it is there, so the
+/// SF Symbols resolve from a checkout instead of the installed library.
+fn point_to_coreicon() {
+  let assets = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../TontooLibs/CoreIcon/assets/icons");
+  if !assets.exists() {
+    return;
+  }
+  if let Some(dir) = assets.to_str() {
+    unsafe {
+      CoreIcon::generator::ASSETS_DIR = Box::leak(dir.to_string().into_boxed_str());
+    }
+  }
 }
 
-/// Pre-scaled theme thumbnail at the display size with rounded corners.
-fn theme_thumbnail(name: &str, px: i32) -> Option<gtk::Picture> {
-  let path = format!("{}/Resources/{}", env!("CARGO_MANIFEST_DIR"), name);
-  if !std::path::Path::new(&path).is_file() {
+/// Render the app icon (`Resources/app_icon.png`) through the CoreIcon
+/// `AppIcon` pipeline with the full Liquid Glass finish. Used for the
+/// icon style previews. Returns the cached PNG path.
+pub(crate) fn app_icon_style_path(style: AppIconStyle) -> Option<String> {
+  let icon_path = format!("{}/Resources/app_icon.png", env!("CARGO_MANIFEST_DIR"));
+  if !std::path::Path::new(&icon_path).is_file() {
     return None;
   }
-  let file = super::wallpaper::cached_thumb_fit(std::path::Path::new(&path), px, px)
-    .unwrap_or_else(|| std::path::PathBuf::from(path));
-  let picture = gtk::Picture::for_filename(file);
-  picture.set_content_fit(gtk::ContentFit::Cover);
-  picture.set_hexpand(false);
-  picture.set_vexpand(false);
-  picture.set_can_shrink(true);
-  picture.set_size_request(px, px);
-  apply_css(&picture, "picture { border-radius: 10px; }");
-  Some(picture)
+  point_to_coreicon();
+  let path = std::env::temp_dir().join(format!("settings_appicon_{}.png", style.tag()));
+  if path.exists() {
+    return path.to_str().map(str::to_string);
+  }
+  let green = CoreIcon::Color::from_hex("#34C759").unwrap_or(CoreIcon::Color::new(
+    52.0 / 255.0,
+    199.0 / 255.0,
+    89.0 / 255.0,
+    1.0,
+  ));
+  let app_icon = CoreIcon::generator::AppIcon::from_file(&icon_path);
+  let app_icon = match style {
+    AppIconStyle::Default => app_icon.light(),
+    AppIconStyle::Dark => app_icon.dark(),
+    AppIconStyle::TintedLight => app_icon.tint(green),
+    AppIconStyle::TintedDark => app_icon.dark().tint(green),
+  };
+  app_icon.save(&path).ok()?;
+  path.to_str().map(str::to_string)
 }
 
-/// The Appearance detail page (display only, directly on the screen).
-pub(crate) fn build_page() -> gtk::Widget {
-  let pal = palette(is_dark());
+/// Bundled theme thumbnail path, when the asset exists.
+fn theme_thumbnail(name: &str) -> Option<String> {
+  let path = format!("{}/Resources/{}", env!("CARGO_MANIFEST_DIR"), name);
+  std::path::Path::new(&path).is_file().then_some(path)
+}
 
-  let detail = gtk::Box::new(gtk::Orientation::Vertical, 8);
-  detail.set_hexpand(true);
-  detail.set_vexpand(true);
-  detail.set_margin_top(20);
-  detail.set_margin_bottom(20);
-  detail.set_margin_start(24);
-  detail.set_margin_end(24);
-
-  // Header: just the "Appearance" title.
-  let title = markup_label(&lang::t("appearance.title"), 17, "bold", pal.fg);
-  title.set_halign(gtk::Align::Start);
-  title.set_margin_bottom(4);
-  detail.append(&title);
-
-  // Three theme thumbnails: Auto, Light, Dark with selection border.
-  let theme_card = card(pal.card);
-  let theme_row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
-  theme_row.set_hexpand(true);
-  theme_row.set_valign(gtk::Align::Center);
-  theme_row.set_halign(gtk::Align::Center);
-  for (index, theme) in THEMES.iter().enumerate() {
-    let wrapper = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    wrapper.set_halign(gtk::Align::Center);
-    let border_css = if index == 0 { SEL_BORDER } else { NO_BORDER };
-    apply_css(&wrapper, border_css);
-    wrapper.set_margin_top(2);
-    wrapper.set_margin_bottom(2);
-    wrapper.set_margin_start(2);
-    wrapper.set_margin_end(2);
-
-    let inner = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    inner.set_halign(gtk::Align::Center);
-    if let Some(picture) = theme_thumbnail(theme.png, 80) {
-      inner.append(&picture);
+/// One thumbnail cell: the image plus its label below. Stacks take sized
+/// views only, so each arm builds its own concrete element.
+fn thumbnail_cell(image: Option<String>, fallback: &str, size: f32, label: &str) -> VStack {
+  let mut cell = VStack::new().spacing(8.0).align(Align::Leading);
+  match image {
+    Some(path) => {
+      cell = cell.child(FileImage::new(path, size, size).radius(10.0).fit(ImageFit::Cover));
     }
-    let label = markup_label(&lang::t(theme.key), 12, "normal", pal.fg);
-    label.set_halign(gtk::Align::Center);
-    label.set_xalign(0.5);
-    inner.append(&label);
-    wrapper.append(&inner);
-    theme_row.append(&wrapper);
+    None => {
+      cell = cell.child(SFSymbolImage::new(fallback).size(size / 2.0));
+    }
   }
-  theme_card.append(&theme_row);
-  detail.append(&theme_card);
+  cell.child(
+    BasicText::new(label)
+      .size(12.0)
+      .width(90.0)
+      .alignment(TextAlignment::Center),
+  )
+}
 
-  // Theme section: accent color dots.
-  detail.append(&section_label(&lang::t("appearance.theme.section"), pal.secondary));
-  let color_card = card(pal.card);
-  let color_row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-  color_row.set_hexpand(true);
-  color_row.set_valign(gtk::Align::Center);
-  for (hex, _name) in ACCENT_COLORS {
-    color_row.append(&color_dot(hex, 12));
+/// Row of the three theme thumbnails.
+fn theme_row() -> HStack {
+  let mut row = HStack::new().spacing(18.0).align(Align::Leading);
+  for theme in THEMES {
+    row = row.child(thumbnail_cell(
+      theme_thumbnail(theme.png),
+      "circle.lefthalf.filled",
+      96.0,
+      &lang::t(theme.key),
+    ));
   }
-  color_card.append(&color_row);
-  detail.append(&color_card);
+  row.child(Spacer::new().factor(1.0))
+}
 
-  // Icon & widget style row: rendered icons via CoreIcon, one selected.
-  detail.append(&section_label(
-    &lang::t("appearance.style.section"),
-    pal.secondary,
-  ));
-  let style_card = card(pal.card);
-  let style_row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
-  style_row.set_hexpand(true);
-  style_row.set_valign(gtk::Align::Center);
-  style_row.set_halign(gtk::Align::End);
+/// Row of the four icon and widget style previews.
+fn style_row() -> HStack {
+  let mut row = HStack::new().spacing(18.0).align(Align::Leading);
   for option in STYLE_OPTIONS {
-    let wrapper = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    wrapper.set_halign(gtk::Align::Center);
-    let border_css = if option.selected { SEL_BORDER } else { NO_BORDER };
-    apply_css(&wrapper, border_css);
-    wrapper.set_margin_top(2);
-    wrapper.set_margin_bottom(2);
-    wrapper.set_margin_start(2);
-    wrapper.set_margin_end(2);
+    row = row.child(thumbnail_cell(
+      app_icon_style_path(option.style),
+      "app.dashed",
+      48.0,
+      &lang::t(option.key),
+    ));
+  }
+  row.child(Spacer::new().factor(1.0))
+}
 
-    let inner = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    inner.set_halign(gtk::Align::Center);
-    if let Some(icon_path) = super::app_icon_style_path(option.style) {
-      let picture = super::wallpaper::cached_thumb_fit(
-        std::path::Path::new(&icon_path),
-        48,
-        48,
-      )
-      .unwrap_or_else(|| std::path::PathBuf::from(icon_path));
-      if let Some(img) = gtk::Picture::for_filename(picture).dynamic_cast::<gtk::Widget>().ok() {
-        img.set_size_request(48, 48);
-        apply_css(&img, "picture { border-radius: 10px; }");
-        inner.append(&img);
-      }
+/// Row of accent color dots, using the TontooUI accent tokens.
+fn accent_row(skin: &Skin) -> HStack {
+  let active = skin.accent;
+  let mut row = HStack::new().spacing(12.0).align(Align::Leading);
+  for hex in ACCENT_COLORS {
+    let mut dot = Circle::new(24.0).fill(crate::views::parse_color(hex));
+    if *hex == crate::views::accent_hex(active) {
+      dot = dot.stroke(skin.text).stroke_width(2.0);
     }
-    let label = markup_label(&lang::t(option.key), 12, "normal", pal.fg);
-    label.set_halign(gtk::Align::Center);
-    label.set_xalign(0.5);
-    inner.append(&label);
-    wrapper.append(&inner);
-    style_row.append(&wrapper);
+    row = row.child(dot);
   }
-  style_card.append(&style_row);
-  detail.append(&style_card);
+  row.child(Spacer::new().factor(1.0))
+}
 
-  // Color picker section (display only).
-  detail.append(&section_label(
-    &lang::t("appearance.color.section"),
-    pal.secondary,
-  ));
-  let picker_card = card(pal.card);
-  let color_row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-  color_row.set_hexpand(true);
-  color_row.set_valign(gtk::Align::Center);
-  for (hex, _name) in COLOR_OPTIONS {
-    color_row.append(&color_dot(hex, 12));
-  }
-  picker_card.append(&color_row);
-  detail.append(&picker_card);
+/// Build the Appearance detail page.
+pub(crate) fn build(skin: &Skin, _nav: &Nav) -> PageView {
+  let body = VStack::new()
+    .spacing(BLOCK_GAP)
+    .align(Align::Leading)
+    .child(caption(&lang::t("appearance.theme.section")))
+    .child(theme_row())
+    .child(caption(&lang::t("appearance.color.section")))
+    .child(accent_row(skin))
+    .child(caption(&lang::t("appearance.style.section")))
+    .child(style_row());
 
-  detail.upcast()
+  crate::views::page_shell(
+    crate::views::page_header(crate::views::header_symbol(APPEARANCE), &header_subtitle(APPEARANCE)),
+    body,
+  )
 }
 
 #[cfg(test)]
@@ -288,15 +233,18 @@ mod tests {
 
   #[test]
   fn accent_colors_are_valid_hex() {
-    for (hex, _name) in ACCENT_COLORS {
+    for hex in ACCENT_COLORS {
       assert!(hex.starts_with('#'));
       assert_eq!(hex.len(), 7);
+      assert!(crate::views::parse_color(hex).to_rgba8().a > 0);
     }
   }
 
   #[test]
-  fn exactly_one_style_selected() {
-    let count = STYLE_OPTIONS.iter().filter(|s| s.selected).count();
-    assert_eq!(count, 1, "exactly one style should be selected");
+  fn style_tags_are_unique_cache_keys() {
+    let mut tags: Vec<&str> = STYLE_OPTIONS.iter().map(|o| o.style.tag()).collect();
+    tags.sort_unstable();
+    tags.dedup();
+    assert_eq!(tags.len(), STYLE_OPTIONS.len());
   }
 }

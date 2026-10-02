@@ -1,150 +1,56 @@
 //! General settings page for SystemSettings.
 //!
-//! Centered header (gear tile, title, subtitle) plus grouped row cards.
-//! The About row navigates to the hidden About detail page, the Date &
-//! Time row to the hidden Date & Time page and the Language & Region row
-//! to the hidden Language & Region page; every other row is display
-//! only. All text uses SF Pro Display and both `en_us` and `de_de`
-//! strings.
+//! A grouped navigation list built from the native
+//! `BasicOutlineGroup`: every row is tappable, the About, Date & Time and
+//! Language & Region rows push their hidden detail page on top of the
+//! list (the sidebar title follows), everything else is display only.
+//! The detail pages themselves live in [`crate::views::about`],
+//! [`crate::views::datetime`] and [`crate::views::locale`].
 
-use super::{markup_label, palette, sidebar_style_icon_path};
 use crate::lang;
-use gtk::prelude::*;
+use crate::views::{
+  header_subtitle, Nav, PageView, Skin, ABOUT_HIDDEN, BLOCK_GAP, DATETIME_HIDDEN, GENERAL,
+  LOCALE_HIDDEN,
+};
+use crate::TontooUI::elements::{Align, BasicOutlineGroup, OutlineNode, VStack};
 
-const HEADER_ICON_PX: i32 = 48;
-const ROW_ICON_PX: i32 = 28;
-const GEAR_GRAY: (u8, u8, u8) = (142, 142, 147);
-const WIFI_BLUE: (u8, u8, u8) = (0, 122, 255);
-const BADGE_GRAY: (u8, u8, u8) = (142, 142, 147);
-const INK_BLACK: (u8, u8, u8) = (0, 0, 0);
-
-/// One General row: lang key, SF Symbol name and tile color.
+/// One General row: label lang key and the SF Symbol shown next to it.
 pub(crate) struct GeneralRow {
   pub key: &'static str,
   pub symbol: &'static str,
-  pub color: (u8, u8, u8),
 }
 
-/// Rows in mockup order, each rendered as its own card.
+/// Rows in mockup order.
 pub(crate) const ROWS: &[GeneralRow] = &[
-  GeneralRow { key: "general.about", symbol: "questionmark", color: WIFI_BLUE },
-  GeneralRow { key: "general.software_update", symbol: "arrow.triangle.2.circlepath", color: WIFI_BLUE },
-  GeneralRow { key: "general.storage", symbol: "internaldrive.fill", color: BADGE_GRAY },
-  GeneralRow { key: "general.airdrop", symbol: "square.and.arrow.up", color: BADGE_GRAY },
-  GeneralRow { key: "general.datetime", symbol: "clock.fill", color: INK_BLACK },
-  GeneralRow { key: "general.language", symbol: "globe", color: WIFI_BLUE },
-  GeneralRow { key: "general.sharing", symbol: "person.2.circle.fill", color: BADGE_GRAY },
-  GeneralRow { key: "general.startup_disk", symbol: "internaldrive.fill", color: BADGE_GRAY },
-  GeneralRow { key: "general.device_management", symbol: "checkmark.seal.fill", color: BADGE_GRAY },
-  GeneralRow { key: "general.transfer_reset", symbol: "arrow.triangle.swap", color: BADGE_GRAY },
+  GeneralRow { key: "general.about", symbol: "questionmark" },
+  GeneralRow { key: "general.software_update", symbol: "arrow.triangle.2.circlepath" },
+  GeneralRow { key: "general.storage", symbol: "internaldrive.fill" },
+  GeneralRow { key: "general.airdrop", symbol: "square.and.arrow.up" },
+  GeneralRow { key: "general.datetime", symbol: "clock.fill" },
+  GeneralRow { key: "general.language", symbol: "globe" },
+  GeneralRow { key: "general.sharing", symbol: "person.2.circle.fill" },
+  GeneralRow { key: "general.startup_disk", symbol: "internaldrive.fill" },
+  GeneralRow { key: "general.device_management", symbol: "checkmark.seal.fill" },
+  GeneralRow { key: "general.transfer_reset", symbol: "arrow.triangle.swap" },
 ];
 
-/// Row groups (card boundaries) in mockup order: first 3 together,
-/// then AirDrop alone, then the next 4 together, then the last 2 alone.
+/// Row group boundaries in mockup order: first 3 together, AirDrop
+/// alone, the next 4 together, the last 2 alone.
 pub(crate) const GROUPS: &[usize] = &[3, 1, 4, 2];
 
-/// Rounded card container in the page palette color.
-fn card(pal_card: &str) -> gtk::Box {
-  let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  card.set_hexpand(true);
-  crate::UIKit::apply_css(
-    &card,
-    &format!(
-      "box {{ background-color: {}; border-radius: 12px; padding: 12px 16px; }}",
-      pal_card
-    ),
-  );
-  card
+/// The hidden detail a row pushes, if any.
+pub(crate) fn target_for(index: usize) -> Option<usize> {
+  match index {
+    0 => Some(ABOUT_HIDDEN),
+    4 => Some(DATETIME_HIDDEN),
+    5 => Some(LOCALE_HIDDEN),
+    _ => None,
+  }
 }
 
-/// One row: tile icon, label and chevron. No click action yet.
-/// All but the last row in a card get a divider.
-fn nav_row(row: &GeneralRow, pal_fg: &str, pal_secondary: &str, last: bool) -> gtk::Box {
-  let inner = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-  inner.set_hexpand(true);
-  inner.set_valign(gtk::Align::Center);
-  inner.set_margin_top(5);
-  inner.set_margin_bottom(5);
-
-  let tag = row.key.replace("general.", "general-row-");
-  if let Some(icon_path) = sidebar_style_icon_path(row.symbol, &tag, row.color) {
-    let icon = gtk::Image::from_file(&icon_path);
-    icon.set_pixel_size(ROW_ICON_PX);
-    icon.set_valign(gtk::Align::Center);
-    inner.append(&icon);
-  }
-
-  let name = markup_label(&lang::t(row.key), 13, "normal", pal_fg);
-  name.set_halign(gtk::Align::Start);
-  name.set_xalign(0.0);
-  name.set_hexpand(true);
-  name.set_ellipsize(gtk::pango::EllipsizeMode::End);
-  inner.append(&name);
-
-  let chevron = markup_label("›", 15, "normal", pal_secondary);
-  chevron.set_halign(gtk::Align::End);
-  inner.append(&chevron);
-
-  if !last {
-    crate::UIKit::apply_css(
-      &inner,
-      "box { border-bottom: 1px solid rgba(128,128,128,0.25); }",
-    );
-  }
-  inner
-}
-
-/// About detail page index (hidden page, history navigation only).
-pub(crate) const ABOUT_PAGE: usize = 28;
-/// Date & Time detail page index (hidden page, history navigation only).
-pub(crate) const DATETIME_PAGE: usize = 29;
-/// Language & Region detail page index (hidden page, history navigation only).
-pub(crate) const LOCALE_PAGE: usize = 30;
-
-/// The General detail page (directly on the screen). The About row
-/// navigates to the hidden About detail page, every other row is
-/// display only.
-pub(crate) fn build_page(nav: &std::sync::Arc<std::sync::Mutex<super::root::NavState>>) -> gtk::Widget {
-  let pal = palette(super::is_dark());
-  let fg: &'static str = pal.fg;
-  let secondary: &'static str = pal.secondary;
-
-  let detail = gtk::Box::new(gtk::Orientation::Vertical, 8);
-  detail.set_hexpand(true);
-  detail.set_vexpand(true);
-  detail.set_margin_top(20);
-  detail.set_margin_bottom(20);
-  detail.set_margin_start(24);
-  detail.set_margin_end(24);
-
-  // Header card: centered gear tile, title and subtitle.
-  let header = card(pal.card);
-  let header_inner = gtk::Box::new(gtk::Orientation::Vertical, 8);
-  header_inner.set_hexpand(true);
-  if let Some(icon_path) = sidebar_style_icon_path("gear", "general-header", GEAR_GRAY) {
-    let icon = gtk::Image::from_file(&icon_path);
-    icon.set_pixel_size(HEADER_ICON_PX);
-    icon.set_halign(gtk::Align::Center);
-    header_inner.append(&icon);
-  }
-  let title = markup_label(&lang::t("general.title"), 20, "bold", fg);
-  title.set_halign(gtk::Align::Center);
-  title.set_xalign(0.5);
-  header_inner.append(&title);
-  let subtitle = markup_label(&lang::t("general.header.subtitle"), 13, "normal", secondary);
-  subtitle.set_halign(gtk::Align::Center);
-  subtitle.set_xalign(0.5);
-  subtitle.set_wrap(true);
-  subtitle.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-  subtitle.set_max_width_chars(44);
-  subtitle.set_justify(gtk::Justification::Center);
-  header_inner.append(&subtitle);
-  header.append(&header_inner);
-  detail.append(&header);
-
-  // Grouped cards: first 3 together, AirDrop alone, next 4 together,
-  // last 2 alone (any future rows land in a final card).
-  let mut bounds: Vec<(usize, usize)> = Vec::new();
+/// Row boundaries of every group.
+pub(crate) fn group_bounds() -> Vec<(usize, usize)> {
+  let mut bounds = Vec::new();
   let mut start = 0;
   for size in GROUPS.iter().copied().chain(std::iter::once(usize::MAX)) {
     if start >= ROWS.len() {
@@ -154,40 +60,55 @@ pub(crate) fn build_page(nav: &std::sync::Arc<std::sync::Mutex<super::root::NavS
     bounds.push((start, end));
     start = end;
   }
-  for (start, end) in bounds {
-    let card = card(pal.card);
-    for (i, row) in ROWS[start..end].iter().enumerate() {
-      let row_box = nav_row(row, fg, secondary, i + 1 == end - start);
-      // The About row (first row overall) navigates to the hidden About
-      // detail page, the Date & Time row to the hidden Date & Time page
-      // and the Language & Region row to the hidden Language & Region
-      // page; every other row is display only.
-      let target = match start + i {
-        0 => Some(ABOUT_PAGE),
-        4 => Some(DATETIME_PAGE),
-        5 => Some(LOCALE_PAGE),
-        _ => None,
-      };
-      if let Some(page) = target {
-        if let Some(cursor) = gtk::gdk::Cursor::from_name("pointer", None) {
-          row_box.set_cursor(Some(&cursor));
-        }
-        let nav_go = nav.clone();
-        let gesture = gtk::GestureClick::new();
-        gesture.connect_released(move |_, _, _, _| {
-          if let Ok(mut state) = nav_go.lock() {
-            state.go(page);
-          }
-        });
-        row_box.add_controller(gesture);
-      }
-      card.append(&row_box);
+  bounds
+}
+
+/// One tappable row group. Rows without a target are display only, so
+/// the group is not selectable at all.
+fn row_group(start: usize, end: usize, nav: Nav) -> BasicOutlineGroup {
+  let nodes: Vec<OutlineNode> = ROWS[start..end]
+    .iter()
+    .map(|row| OutlineNode::file(lang::t(row.key)).icon(row.symbol))
+    .collect();
+  let targets: Vec<Option<usize>> = (start..end).map(target_for).collect();
+  let navigable = targets.iter().any(|target| target.is_some());
+  let group = BasicOutlineGroup::new(nodes)
+    .selectable(navigable)
+    .trailing_chevron(true);
+  if !navigable {
+    return group;
+  }
+  group.on_select(move |path| {
+    let Some(&row) = path.first() else {
+      return;
+    };
+    if let Some(Some(target)) = targets.get(row) {
+      nav.push(*target);
     }
-    detail.append(&card);
+  })
+}
+
+/// Build the General page: either the navigation list or the pushed
+/// hidden detail.
+pub(crate) fn build(skin: &Skin, nav: &Nav) -> PageView {
+  if nav.current().is_some() {
+    return crate::views::build_hidden(nav.current().unwrap(), skin, nav);
   }
 
-  detail.upcast()
+  let mut body = VStack::new().spacing(BLOCK_GAP).align(Align::Leading);
+  for (start, end) in group_bounds() {
+    body = body.child(row_group(start, end, nav.clone()));
+  }
+
+  crate::views::page_shell(
+    crate::views::page_header(
+      crate::views::header_symbol(GENERAL),
+      &header_subtitle(GENERAL),
+    ),
+    body,
+  )
 }
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -211,5 +132,21 @@ mod tests {
   fn groups_cover_all_rows() {
     assert_eq!(GROUPS, &[3, 1, 4, 2]);
     assert_eq!(GROUPS.iter().sum::<usize>(), ROWS.len());
+    let bounds = group_bounds();
+    assert_eq!(bounds.len(), GROUPS.len());
+    assert_eq!(bounds[0], (0, 3));
+    assert_eq!(bounds[1], (3, 4));
+    assert_eq!(bounds[2], (4, 8));
+    assert_eq!(bounds[3], (8, 10));
+  }
+
+  #[test]
+  fn only_about_datetime_and_language_navigate() {
+    let targets: Vec<Option<usize>> = (0..ROWS.len()).map(target_for).collect();
+    assert_eq!(targets[0], Some(ABOUT_HIDDEN));
+    assert_eq!(targets[4], Some(DATETIME_HIDDEN));
+    assert_eq!(targets[5], Some(LOCALE_HIDDEN));
+    let navigable = targets.iter().filter(|target| target.is_some()).count();
+    assert_eq!(navigable, 3);
   }
 }

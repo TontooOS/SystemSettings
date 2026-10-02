@@ -245,5 +245,10 @@
   "about.apps": "Apps",
   "about.storage": "Storage",
   "about.unknown": "Unknown",
-  "about.version": "Version"
+  "about.version": "Version",
+  "appearance.header.subtitle": "Choose the theme, accent color and icon style.",
+  "wifi.row.locked": "Secured",
+  "wifi.no_networks": "No networks found.",
+  "network.dns.apply": "Apply",
+  "general.back": "Back"
 }

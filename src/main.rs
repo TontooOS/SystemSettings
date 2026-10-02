@@ -1,28 +1,33 @@
-//! SystemSettings: TontooOS Settings basis built with TontooUI.
+//! SystemSettings for TontooOS, built on the TontooUI renderer.
 //!
-//! Sidebar on the left (single Wi-Fi/WLAN category with a blue CoreIcon
-//! SF Symbol), example Wi-Fi page on the right. Follows the live system
-//! color scheme (Dark `#1d1d1d`, Light `#ececec`).
+//! One full-bleed window: the TontooUI `Sidebar` owns the navigation
+//! column (traffic lights, search field, the avatar pill, one row per
+//! settings category) plus the detail page of the selected row. Every
+//! page is a `ScrollView` over a header row and native TontooUI
+//! elements (`Form` groups, `BasicOutlineGroup` lists, `Slider`,
+//! `SegmentedPicker`, `BasicSheet` dialogs), so the app follows the live
+//! system color scheme through `ThemeWatcher` and only uses the
+//! mandated TontooOS background/text tokens. Strings come from
+//! `lang/en_us.json` and `lang/de_de.json` via `lang`.
 
+mod app;
 mod daemon;
 mod lang;
 mod views;
 
 sdk::preinclude!();
 
-use UIKit::prelude::*;
-
-struct SettingsDelegate;
-
-impl AppDelegate for SettingsDelegate {
-  fn view(&self) -> Box<dyn Widget> {
-    Box::new(views::root::SettingsRoot::new())
-  }
-}
+use TontooUI::renderer::window::run;
 
 fn main() {
   lang::init();
-  let mut app = App::with_delegate(lang::t("app.title"), 900, 600, SettingsDelegate);
-  app.auto_color_scheme();
-  app.run();
+  if let Err(err) = run(
+    &lang::t("app.title"),
+    views::WINDOW_W,
+    views::WINDOW_H,
+    app::SettingsApp::new(),
+  ) {
+    eprintln!("systemsettings: {err}");
+    std::process::exit(1);
+  }
 }

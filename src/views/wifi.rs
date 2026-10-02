@@ -1,482 +1,242 @@
 //! Wi-Fi settings page for SystemSettings.
 //!
-//! Header with a radio toggle, a Known Networks section backed by the
-//! daemon system store and a live scan list. Without a wireless adapter
-//! both sections show the no-hardware note; with the radio off only the
-//! header stays visible. Clicking a row opens the join dialog (password
-//! entry for secured networks); a successful connect is stored as known
-//! by the daemon (encrypted, system-wide) and auto-joined at startup.
-//! All text uses SF Pro Display and both `en_us` and `de_de` strings.
+//! Header with the radio switch, a Known Networks list and a live scan
+//! list, all read from the settings daemon. Without a wireless adapter
+//! both lists show the no-hardware note; with the radio off only the
+//! header stays visible. Picking a network raises a join request the app
+//! turns into a modal sheet (with password entry for secured networks);
+//! a successful connect is stored as known by the daemon.
 
-use super::{BADGE_GRAY, WIFI_BLUE, Palette, is_dark, markup_label, palette, sidebar_style_icon_path};
+use std::fmt::Write as _;
+
 use crate::daemon;
 use crate::lang;
-use crate::TontooUI::Toggle;
-use crate::UIKit::apply_css;
-use crate::UIKit::prelude::*;
-use gtk::prelude::*;
-use std::rc::Rc;
-use std::sync::{
-  Arc,
-  atomic::{AtomicBool, Ordering},
+use crate::views::{
+  caption, header_symbol, header_subtitle, note, Nav, PageView, Skin, BLOCK_GAP, HEADER_GAP,
+  HEADER_SYMBOL_PX, TEXT_W, WIFI,
+};
+use crate::TontooUI::elements::{
+  Align, BasicOutlineGroup, BasicText, HStack, OutlineNode, SFSymbolImage, Spacer, TextAlignment,
+  Toggle, VStack,
 };
 
-const HEADER_ICON_PX: i32 = 32;
-const ROW_ICON_PX: i32 = 22;
-const LOCK_ICON_PX: i32 = 14;
-
-/// Blue `wifi` icon, same artwork as the sidebar row icon.
-fn wifi_icon_path() -> Option<String> {
-  sidebar_style_icon_path("wifi", "wifi", WIFI_BLUE)
-}
-
-/// Small gray badge icon (sidebar style) for the `lock.fill` glyph on
-/// secured networks.
-fn badge_icon_path() -> Option<String> {
-  sidebar_style_icon_path("lock.fill", "badge_lock", BADGE_GRAY)
-}
-
-/// Rounded card container in the page palette color (same style as the
-/// General/About pages).
-fn card(pal_card: &str) -> gtk::Box {
-  let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  card.set_hexpand(true);
-  apply_css(
-    &card,
-    &format!(
-      "box {{ background-color: {}; border-radius: 12px; padding: 12px 16px; }}",
-      pal_card
-    ),
-  );
-  card
-}
-
-/// Four signal bars, filled according to `signal_pct` (0-100).
-fn signal_bars(signal_pct: i32, filled_hex: &str, empty_hex: &str) -> gtk::Widget {
-  let row = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-  row.set_valign(gtk::Align::Center);
-  let filled = ((signal_pct.clamp(0, 100) + 24) / 25).clamp(0, 4);
-  for (i, height) in [5, 9, 13, 17].iter().enumerate() {
-    let bar = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    bar.set_size_request(4, *height);
-    bar.set_valign(gtk::Align::End);
-    let color = if (i as i32) < filled {
-      filled_hex
-    } else {
-      empty_hex
-    };
-    apply_css(
-      &bar,
-      &format!("box {{ background-color: {}; border-radius: 1px; }}", color),
-    );
-    row.append(&bar);
-  }
-  row.upcast()
-}
-
-/// One network row for the list. Known networks carry no live signal, so
-/// `signal_pct` is `None` and the bars are hidden.
-struct NetworkRow {
-  ssid: String,
-  signal_pct: Option<i32>,
-  secured: bool,
-}
-
-fn is_secured(security: &str) -> bool {
+/// A network counts as secured when the daemon reports anything other
+/// than an empty string or `OPEN`.
+pub(crate) fn is_secured(security: &str) -> bool {
   !security.trim().is_empty() && security.trim().to_uppercase() != "OPEN"
 }
 
-/// Page state resolved from the daemon.
-enum PageState {
-  /// Daemon unreachable: header on plus example rows (dev fallback).
+/// One network in either list.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct Row {
+  pub ssid: String,
+  pub secured: bool,
+  pub signal_pct: Option<i32>,
+}
+
+/// What the daemon reports about the radio right now.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum Radio {
+  /// Daemon unreachable: example rows so the page stays explorable.
   Unreachable,
-  /// No wireless adapter: both sections with the no-hardware note.
+  /// No wireless adapter present.
   NoAdapter,
-  /// Radio off: header with the toggle off, no sections below.
+  /// Radio off.
   Off,
-  /// Radio on: known networks plus the live scan.
-  On {
-    known: Vec<NetworkRow>,
-    networks: Vec<NetworkRow>,
-  },
+  /// Radio on with the resolved lists.
+  On { known: Vec<Row>, networks: Vec<Row> },
 }
 
-fn example_rows() -> Vec<NetworkRow> {
-  vec![
-    NetworkRow {
-      ssid: lang::t("wifi.row.home"),
-      signal_pct: Some(82),
-      secured: true,
-    },
-    NetworkRow {
-      ssid: lang::t("wifi.row.lab"),
-      signal_pct: Some(64),
-      secured: true,
-    },
-  ]
+impl Row {
+  /// Example rows shown while the daemon is unreachable or the scan
+  /// fails, so the page is never blank.
+  fn examples() -> Vec<Row> {
+    vec![
+      Row { ssid: lang::t("wifi.row.home"), secured: true, signal_pct: Some(82) },
+      Row { ssid: lang::t("wifi.row.lab"), secured: true, signal_pct: Some(64) },
+    ]
+  }
 }
 
-fn resolve_state() -> PageState {
-  let state = match daemon::status() {
-    Ok(state) => state,
-    Err(_) => return PageState::Unreachable,
+/// Resolve the radio state plus the known and scanned networks.
+pub(crate) fn resolve_state() -> Radio {
+  let Ok(state) = daemon::status() else {
+    return Radio::Unreachable;
   };
   if !state.available {
-    return PageState::NoAdapter;
+    return Radio::NoAdapter;
   }
   if !state.enabled {
-    return PageState::Off;
+    return Radio::Off;
   }
   let known = daemon::known_list()
     .unwrap_or_default()
     .into_iter()
-    .map(|k| NetworkRow {
-      ssid: k.ssid,
+    .map(|entry| Row {
+      ssid: entry.ssid,
+      secured: is_secured(&entry.security),
       signal_pct: None,
-      secured: is_secured(&k.security),
     })
     .collect();
   let networks = match daemon::list() {
-    Ok(networks) => networks
+    Ok(found) => found
       .into_iter()
-      .map(|n| NetworkRow {
-        ssid: n.ssid,
-        signal_pct: Some(n.signal_pct),
-        secured: is_secured(&n.security),
+      .map(|entry| Row {
+        ssid: entry.ssid,
+        secured: is_secured(&entry.security),
+        signal_pct: Some(entry.signal_pct),
       })
       .collect(),
-    Err(_) => example_rows(),
+    Err(_) => Row::examples(),
   };
-  PageState::On { known, networks }
+  Radio::On { known, networks }
 }
 
-/// Join dialog for one network: password entry for secured networks,
-/// direct connect for open ones. `refresh` re-renders the page after a
-/// successful connect (the daemon stored the network as known).
-fn open_join_window(
-  ssid: &str,
-  secured: bool,
-  fg: &str,
-  card: &str,
-  refresh: &Rc<dyn Fn()>,
-) {
-  let win = gtk::Window::new();
-  win.set_title(Some(ssid));
-  win.set_modal(true);
-  win.set_resizable(false);
-  win.set_default_size(320, 0);
-  apply_css(&win, &format!("window {{ background-color: {}; }}", card));
-
-  let body = gtk::Box::new(gtk::Orientation::Vertical, 10);
-  body.set_margin_top(16);
-  body.set_margin_bottom(16);
-  body.set_margin_start(16);
-  body.set_margin_end(16);
-
-  let name = markup_label(ssid, 15, "bold", fg);
-  name.set_halign(gtk::Align::Start);
-  body.append(&name);
-
-  let entry = gtk::Entry::new();
-  if secured {
-    entry.set_placeholder_text(Some(&lang::t("wifi.join.password")));
-    entry.set_visibility(false);
-    entry.set_input_purpose(gtk::InputPurpose::Password);
-    body.append(&entry);
+/// Coarse state fingerprint: the radio state plus the SSID sets. Signal
+/// percentages are left out on purpose, so a live scan does not rebuild
+/// the page on every poll.
+pub(crate) fn fingerprint(state: &Radio) -> String {
+  let mut out = String::new();
+  match state {
+    Radio::Unreachable => out.push_str("unreachable"),
+    Radio::NoAdapter => out.push_str("no-adapter"),
+    Radio::Off => out.push_str("off"),
+    Radio::On { known, networks } => {
+      out.push_str("on;known=");
+      for row in known {
+        let _ = write!(out, "{},{};", row.ssid, row.secured);
+      }
+      out.push(';');
+      out.push_str("networks=");
+      for row in networks {
+        let _ = write!(out, "{},{};", row.ssid, row.secured);
+      }
+    }
   }
-
-  let error = markup_label("", 12, "normal", "#FF453A");
-  error.set_halign(gtk::Align::Start);
-  error.set_visible(false);
-  body.append(&error);
-
-  let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-  buttons.set_halign(gtk::Align::End);
-  let cancel = gtk::Button::with_label(&lang::t("wifi.join.cancel"));
-  let connect_btn = gtk::Button::with_label(&lang::t("wifi.join.connect"));
-  connect_btn.add_css_class("suggested-action");
-  buttons.append(&cancel);
-  buttons.append(&connect_btn);
-  body.append(&buttons);
-
-  win.set_child(Some(&body));
-
-  let win_cancel = win.clone();
-  cancel.connect_clicked(move |_| win_cancel.close());
-
-  let win_connect = win.clone();
-  let error_connect = error.clone();
-  let ssid_owned = ssid.to_string();
-  let refreshed = Rc::clone(refresh);
-  connect_btn.connect_clicked(move |_| {
-    let password = if secured {
-      let text = entry.text().to_string();
-      if text.is_empty() {
-        error_connect.set_markup(&format!(
-          "<span font_desc=\"{} normal 12\" foreground=\"#FF453A\">{}</span>",
-          super::SF_PRO,
-          glib::markup_escape_text(&lang::t("wifi.join.password_required")),
-        ));
-        error_connect.set_visible(true);
-        return;
-      }
-      Some(text)
-    } else {
-      None
-    };
-    match daemon::connect(&ssid_owned, password.as_deref(), false) {
-      Ok(_) => {
-        refreshed();
-        win_connect.close();
-      }
-      Err(e) => {
-        error_connect.set_markup(&format!(
-          "<span font_desc=\"{} normal 12\" foreground=\"#FF453A\">{}</span>",
-          super::SF_PRO,
-          glib::markup_escape_text(&e),
-        ));
-        error_connect.set_visible(true);
-      }
-    }
-  });
-
-  win.present();
+  out
 }
 
-/// Small section header (e.g. "Known Networks").
-fn section_header(title: &str, pal: &Palette) -> gtk::Widget {
-  let section = markup_label(title, 12, "normal", pal.secondary);
-  section.set_halign(gtk::Align::Start);
-  section.set_margin_bottom(2);
-  section.upcast()
+/// Signal strength label for a scanned network.
+fn signal_text(pct: i32) -> String {
+  format!("{} %", pct.clamp(0, 100))
 }
 
-/// Wrapped secondary note (e.g. the no-adapter message).
-fn note_label(text: &str, pal: &Palette) -> gtk::Widget {
-  let note = markup_label(text, 13, "normal", pal.secondary);
-  note.set_halign(gtk::Align::Start);
-  note.set_xalign(0.0);
-  note.set_wrap(true);
-  note.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-  note.set_margin_top(4);
-  note.set_margin_bottom(8);
-  note.upcast()
-}
-
-/// Append clickable network rows to `list_box`. `refresh` re-renders the
-/// page after a successful join.
-fn append_network_rows(
-  list_box: &gtk::Box,
-  rows: &[NetworkRow],
-  pal: &Palette,
-  refresh: &Rc<dyn Fn()>,
-) {
-  let last = rows.len().saturating_sub(1);
-  for (index, row) in rows.iter().enumerate() {
-    let row_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    row_box.set_hexpand(true);
-    row_box.set_margin_top(5);
-    row_box.set_margin_bottom(5);
-    row_box.set_focusable(true);
-    if let Some(cursor) = gtk::gdk::Cursor::from_name("pointer", None) {
-      row_box.set_cursor(Some(&cursor));
-    }
-    if index != last {
-      apply_css(
-        &row_box,
-        "box { border-bottom: 1px solid rgba(128,128,128,0.25); }",
-      );
-    }
-
-    if let Some(icon_path) = wifi_icon_path() {
-      let icon = gtk::Image::from_file(&icon_path);
-      icon.set_pixel_size(ROW_ICON_PX);
-      icon.set_valign(gtk::Align::Center);
-      row_box.append(&icon);
-    }
-
-    if let Some(signal_pct) = row.signal_pct {
-      row_box.append(&signal_bars(signal_pct, pal.fg, pal.secondary));
-    }
-
-    let name = markup_label(&row.ssid, 13, "normal", pal.fg);
-    name.set_halign(gtk::Align::Start);
-    name.set_xalign(0.0);
-    name.set_hexpand(true);
-    name.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    row_box.append(&name);
-
-    if row.secured {
-      if let Some(lock_path) = badge_icon_path() {
-        let lock = gtk::Image::from_file(&lock_path);
-        lock.set_pixel_size(LOCK_ICON_PX);
-        lock.set_valign(gtk::Align::Center);
-        row_box.append(&lock);
-      }
-    }
-
-    let ssid = row.ssid.clone();
-    let secured = row.secured;
-    let fg = pal.fg;
-    let card = pal.card;
-    let refreshed = Rc::clone(refresh);
-    let click = gtk::GestureClick::new();
-    click.set_button(1);
-    click.connect_released(move |_, _, _, _| {
-      open_join_window(&ssid, secured, fg, card, &refreshed);
-    });
-    row_box.add_controller(click);
-
-    list_box.append(&row_box);
+/// Row label: SSID plus the signal for a live scan, the lock marker for a
+/// secured network.
+fn row_label(row: &Row) -> String {
+  let mut label = row.ssid.clone();
+  if let Some(pct) = row.signal_pct {
+    let _ = write!(label, "  ({})", signal_text(pct));
   }
+  if row.secured {
+    let _ = write!(label, "  {}", lang::t("wifi.row.locked"));
+  }
+  label
 }
 
-/// Fill `detail` for the current daemon state. Called on first build and
-/// after every radio or connection change. `refresh_flag` is set by the
-/// radio toggle (whose handler must be Send + Sync and cannot touch GTK);
-/// the poller in `build_page` picks it up and re-renders here.
-fn render(detail: &gtk::Box, refresh_flag: &Arc<AtomicBool>) {
-  while let Some(child) = detail.first_child() {
-    detail.remove(&child);
+/// Tappable network list. Picking a row asks the app to open the join
+/// sheet; the SSIDs are captured by value so the list owns its own data.
+fn network_list(rows: &[Row], nav: Nav) -> BasicOutlineGroup {
+  let picks: Vec<(String, bool)> = rows
+    .iter()
+    .map(|row| (row.ssid.clone(), row.secured))
+    .collect();
+  let nodes: Vec<OutlineNode> = rows
+    .iter()
+    .map(|row| {
+      OutlineNode::file(row_label(row)).icon(if row.secured {
+        "lock.fill"
+      } else {
+        "wifi"
+      })
+    })
+    .collect();
+  BasicOutlineGroup::new(nodes)
+    .selectable(true)
+    .trailing_chevron(false)
+    .on_select(move |path| {
+      if let Some(&index) = path.first() {
+        if let Some((ssid, secured)) = picks.get(index) {
+          nav.request_join(ssid, *secured);
+        }
+      }
+    })
+}
+
+/// Header row with the radio switch pinned to the trailing edge.
+fn radio_header(state: &Radio, nav: Nav) -> HStack {
+  HStack::new()
+    .spacing(HEADER_GAP)
+    .align(Align::Leading)
+    .child(SFSymbolImage::new(header_symbol(WIFI)).size(HEADER_SYMBOL_PX))
+    .child(
+      BasicText::new(header_subtitle(WIFI))
+        .size(13.0)
+        .weight(400.0)
+        .width(TEXT_W)
+        .alignment(TextAlignment::Leading),
+    )
+    .child(Spacer::new().factor(1.0))
+    .child(radio_switch(state, nav))
+}
+
+/// Header switch reflecting the radio state.
+fn radio_switch(state: &Radio, nav: Nav) -> Toggle {
+  let (on, live) = match state {
+    Radio::Unreachable => (true, true),
+    Radio::NoAdapter => (false, false),
+    Radio::Off => (false, true),
+    Radio::On { .. } => (true, true),
+  };
+  if !live {
+    // No adapter: the switch is off and stays inert.
+    return Toggle::new("").on(on).disabled(true);
   }
-  let pal = palette(is_dark());
+  Toggle::new("").on(on).on_toggle(move |on| {
+    if let Err(err) = daemon::set_enabled(on) {
+      println!("Wi-Fi radio toggle failed: {err}");
+    }
+    nav.touch();
+  })
+}
+/// Build the Wi-Fi detail page.
+pub(crate) fn build(_skin: &Skin, nav: &Nav) -> PageView {
   let state = resolve_state();
-
-  // Header card: blue Wi-Fi icon, title + subtitle, toggle on the right.
-  // Without an adapter the toggle is off and insensitive; with the radio
-  // off it is off; otherwise it reflects the radio state.
-  let (toggle_on, toggle_live) = match &state {
-    PageState::Unreachable => (true, true),
-    PageState::NoAdapter => (false, false),
-    PageState::Off => (false, true),
-    PageState::On { .. } => (true, true),
-  };
-
-  let header_card = card(pal.card);
-  let header = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-  header.set_hexpand(true);
-  header.set_valign(gtk::Align::Center);
-
-  if let Some(icon_path) = wifi_icon_path() {
-    let icon = gtk::Image::from_file(&icon_path);
-    icon.set_pixel_size(HEADER_ICON_PX);
-    icon.set_valign(gtk::Align::Start);
-    header.append(&icon);
-  }
-
-  let titles = gtk::Box::new(gtk::Orientation::Vertical, 2);
-  titles.set_hexpand(true);
-  titles.set_halign(gtk::Align::Fill);
-  let title = markup_label(&lang::t("wifi.title"), 17, "bold", pal.fg);
-  title.set_halign(gtk::Align::Start);
-  title.set_xalign(0.0);
-  titles.append(&title);
-  let subtitle = markup_label(&lang::t("wifi.header.subtitle"), 13, "normal", pal.secondary);
-  subtitle.set_halign(gtk::Align::Start);
-  subtitle.set_xalign(0.0);
-  subtitle.set_wrap(true);
-  subtitle.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-  subtitle.set_max_width_chars(48);
-  titles.append(&subtitle);
-  header.append(&titles);
-
-  // The TontooUI toggle handler must be Send + Sync, so the GTK tree
-  // cannot be captured. It applies the radio state and raises the refresh
-  // flag; the poller in `build_page` re-renders on the main thread.
-  let refresh_raised = Arc::clone(refresh_flag);
-  let toggle = Toggle::new("")
-    .value(toggle_on)
-    .width(52.0)
-    .on_change(move |on| {
-      let _ = daemon::set_enabled(on);
-      refresh_raised.store(true, Ordering::SeqCst);
-    });
-  let toggle_gtk = toggle.to_gtk();
-  toggle_gtk.set_halign(gtk::Align::End);
-  toggle_gtk.set_valign(gtk::Align::Start);
-  toggle_gtk.set_vexpand(false);
-  toggle_gtk.set_sensitive(toggle_live);
-  header.append(&toggle_gtk);
-  header_card.append(&header);
-  detail.append(&header_card);
-
-  let gap = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  gap.set_size_request(-1, 16);
-  detail.append(&gap);
-
-  let detail_refresh = detail.clone();
-  let flag_refresh = Arc::clone(refresh_flag);
-  let refresh: Rc<dyn Fn()> = Rc::new(move || render(&detail_refresh, &flag_refresh));
+  let header = radio_header(&state, nav.clone());
+  let mut body = VStack::new().spacing(BLOCK_GAP).align(Align::Leading);
 
   match state {
-    // Radio off: nothing below the header.
-    PageState::Off => {}
-    // No adapter: both sections with the no-hardware note.
-    PageState::NoAdapter => {
-      detail.append(&section_header(&lang::t("wifi.known.header"), &pal));
-      detail.append(&note_label(&lang::t("wifi.no_adapter"), &pal));
-      detail.append(&section_header(&lang::t("wifi.networks.header"), &pal));
-      detail.append(&note_label(&lang::t("wifi.no_adapter"), &pal));
+    Radio::Off => {
+      // The header carries the whole page while the radio is off.
     }
-    // Daemon unreachable: example rows under the Networks header.
-    PageState::Unreachable => {
-      detail.append(&section_header(&lang::t("wifi.networks.header"), &pal));
-      let list_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-      list_box.set_hexpand(true);
-      append_network_rows(&list_box, &example_rows(), &pal, &refresh);
-      detail.append(&list_box);
+    Radio::NoAdapter => {
+      body = body
+        .child(caption(&lang::t("wifi.known.header")))
+        .child(note(&lang::t("wifi.no_adapter")))
+        .child(caption(&lang::t("wifi.networks.header")))
+        .child(note(&lang::t("wifi.no_adapter")));
     }
-    // Radio on: known networks plus the live scan.
-    PageState::On { known, networks } => {
+    Radio::Unreachable => {
+      body = body
+        .child(caption(&lang::t("wifi.networks.header")))
+        .child(network_list(&Row::examples(), nav.clone()));
+    }
+    Radio::On { known, networks } => {
       if !known.is_empty() {
-        detail.append(&section_header(&lang::t("wifi.known.header"), &pal));
-        let known_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        known_box.set_hexpand(true);
-        append_network_rows(&known_box, &known, &pal, &refresh);
-        detail.append(&known_box);
-
-        let gap = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        gap.set_size_request(-1, 12);
-        detail.append(&gap);
+        body = body
+          .child(caption(&lang::t("wifi.known.header")))
+          .child(network_list(&known, nav.clone()));
       }
-      detail.append(&section_header(&lang::t("wifi.networks.header"), &pal));
-      let list_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-      list_box.set_hexpand(true);
-      append_network_rows(&list_box, &networks, &pal, &refresh);
-      detail.append(&list_box);
+      body = body.child(caption(&lang::t("wifi.networks.header")));
+      if networks.is_empty() {
+        body = body.child(note(&lang::t("wifi.no_networks")));
+      } else {
+        body = body.child(network_list(&networks, nav.clone()));
+      }
     }
   }
-}
 
-/// The Wi-Fi detail page: header row plus known and nearby networks,
-/// directly on the screen.
-pub(crate) fn build_page() -> gtk::Widget {
-  let detail = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  detail.set_hexpand(true);
-  detail.set_vexpand(true);
-  detail.set_margin_top(20);
-  detail.set_margin_bottom(20);
-  detail.set_margin_start(24);
-  detail.set_margin_end(24);
-  let refresh_flag = Arc::new(AtomicBool::new(false));
-  // Poller for radio-toggle refreshes (see `render`): stops itself once
-  // the page is destroyed.
-  let weak = detail.downgrade();
-  let raised = Arc::clone(&refresh_flag);
-  let rendered = Arc::clone(&refresh_flag);
-  glib::timeout_add_local(std::time::Duration::from_millis(150), move || {
-    match weak.upgrade() {
-      Some(detail) => {
-        if raised.swap(false, Ordering::SeqCst) {
-          render(&detail, &rendered);
-        }
-        glib::ControlFlow::Continue
-      }
-      None => glib::ControlFlow::Break,
-    }
-  });
-  render(&detail, &refresh_flag);
-  detail.upcast()
+  crate::views::page_shell(header, body)
 }
 
 #[cfg(test)]
@@ -495,5 +255,44 @@ mod tests {
     assert!(is_secured("WPA2"));
     assert!(is_secured("WPA3"));
     assert!(is_secured("WEP"));
+  }
+
+  #[test]
+  fn signal_text_clamps_to_a_percentage() {
+    assert_eq!(signal_text(0), "0 %");
+    assert_eq!(signal_text(82), "82 %");
+    assert_eq!(signal_text(140), "100 %");
+    assert_eq!(signal_text(-20), "0 %");
+  }
+
+  #[test]
+  fn row_labels_carry_signal_and_lock() {
+    let row = Row { ssid: "Home".into(), secured: true, signal_pct: Some(82) };
+    let label = row_label(&row);
+    assert!(label.starts_with("Home"));
+    assert!(label.contains("82 %"));
+    assert!(label.contains(&lang::t("wifi.row.locked")));
+    let open = Row { ssid: "Cafe".into(), secured: false, signal_pct: None };
+    assert_eq!(row_label(&open), "Cafe");
+  }
+
+  #[test]
+  fn fingerprint_ignores_signal_but_tracks_membership() {
+    let a = Radio::On {
+      known: vec![],
+      networks: vec![Row { ssid: "Home".into(), secured: true, signal_pct: Some(30) }],
+    };
+    let b = Radio::On {
+      known: vec![],
+      networks: vec![Row { ssid: "Home".into(), secured: true, signal_pct: Some(90) }],
+    };
+    assert_eq!(fingerprint(&a), fingerprint(&b));
+    let c = Radio::On {
+      known: vec![],
+      networks: vec![Row { ssid: "Home".into(), secured: false, signal_pct: Some(30) }],
+    };
+    assert_ne!(fingerprint(&a), fingerprint(&c));
+    assert_ne!(fingerprint(&Radio::Off), fingerprint(&Radio::NoAdapter));
+    assert_ne!(fingerprint(&Radio::Off), fingerprint(&Radio::Unreachable));
   }
 }

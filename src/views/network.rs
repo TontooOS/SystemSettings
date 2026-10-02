@@ -1,418 +1,161 @@
 //! Network settings page for SystemSettings.
 //!
-//! Header, DNS card (click-to-edit, applied system-wide through the
-//! daemon) and the live wired list from the daemon: connected Ethernet
-//! interfaces with a "..." menu button opening an info popover. All text
-//! uses SF Pro Display and both `en_us` and `de_de` strings.
+//! DNS group with an editable server field plus an Apply button (both
+//! applied system-wide through the daemon, empty means DHCP) and one info
+//! group per connected wired interface.
 
-use super::{WIFI_BLUE, is_dark, markup_label, palette, sidebar_style_icon_path};
-use crate::daemon;
-use crate::lang;
-use crate::UIKit::prelude::*;
-use gtk::prelude::*;
+use std::cell::RefCell;
 use std::rc::Rc;
 
-const HEADER_ICON_PX: i32 = 32;
+use crate::daemon;
+use crate::lang;
+use crate::views::{
+  header_subtitle, Nav, PageView, Skin, BLOCK_GAP, NETWORK,
+};
+use crate::TontooUI::elements::{
+  Align, Button, ButtonStyle, Form, FormRow, FormSection, VStack,
+};
 
-/// Suggested manual servers when switching from DHCP.
-const DEFAULT_DNS_INPUT: &str = "1.1.1.1, 8.8.8.8";
+/// Suggested manual servers when switching away from DHCP.
+pub(crate) const DEFAULT_DNS_INPUT: &str = "1.1.1.1, 8.8.8.8";
 
-/// Blue `network` icon, same artwork as the sidebar row icon.
-fn network_icon_path() -> Option<String> {
-  sidebar_style_icon_path("network", "network", WIFI_BLUE)
+/// User-facing text for a `dns_set` failure: validation errors get the
+/// format hint, a missing NetworkManager or active connection gets the
+/// unavailable note, anything else passes through raw.
+pub(crate) fn dns_error_text(err: &str) -> String {
+  if err.contains("invalid IPv4") {
+    format!("{} ({})", lang::t("network.dns.invalid"), err)
+  } else if err.contains("not available") || err.contains("no active connection") {
+    format!("{} ({})", lang::t("network.dns.unavailable"), err)
+  } else {
+    err.to_string()
+  }
 }
 
-/// Inline markup matching `markup_label`, for updating labels in place.
-fn span(text: &str, size: u32, weight: &str, color: &str) -> String {
-  format!(
-    "<span font_desc=\"{} {} {}\" foreground=\"{}\">{}</span>",
-    super::SF_PRO,
-    weight,
-    size,
-    color,
-    glib::markup_escape_text(text),
+/// Current DNS servers as the field shows them: the manual list, or the
+/// Automatic placeholder while the daemon reports DHCP.
+pub(crate) fn dns_value(state: &daemon::DnsState) -> String {
+  if state.manual && !state.servers.is_empty() {
+    state.servers.join(", ")
+  } else {
+    lang::t("network.dns.automatic")
+  }
+}
+
+/// Apply a DNS server list through the daemon. Empty input means DHCP.
+/// Returns the servers the daemon reports back.
+fn apply_dns(input: &str) -> Result<String, String> {
+  daemon::dns_set(input)
+    .map(|state| state.servers.join(", "))
+    .map_err(|err| dns_error_text(&err))
+}
+
+/// DNS group: the editable server field, an Apply button that commits the
+/// draft, and the DHCP hint as the group footnote.
+fn dns_group() -> Form {
+  let state = daemon::dns_get().unwrap_or(daemon::DnsState {
+    servers: Vec::new(),
+    manual: false,
+  });
+  let draft: Rc<RefCell<String>> = Rc::new(RefCell::new(dns_value(&state)));
+
+  let feeding = draft.clone();
+  let field = FormRow::text(lang::t("network.dns"), dns_value(&state))
+    .placeholder(DEFAULT_DNS_INPUT)
+    .on_change(move |text| {
+      *feeding.borrow_mut() = text.to_string();
+    });
+
+  let applying = draft.clone();
+  let apply = Button::new(lang::t("network.dns.apply"))
+    .style(ButtonStyle::BorderedProminent)
+    .on_press(move || match apply_dns(applying.borrow().trim()) {
+      Ok(applied) => println!("DNS set: {applied}"),
+      Err(err) => println!("DNS set failed: {err}"),
+    });
+
+  Form::new().section(
+    FormSection::new()
+      .row(field)
+      .row(FormRow::buttons(vec![apply]))
+      .footnote(lang::t("network.dns.hint")),
   )
 }
 
-/// User-facing text for a `dns_set` failure: validation errors get the
-/// format hint, missing NetworkManager/hardware gets the unavailable
-/// note, anything else passes through raw.
-fn dns_error_text(e: &str) -> String {
-  if e.contains("invalid IPv4") {
-    format!("{} ({})", lang::t("network.dns.invalid"), e)
-  } else if e.contains("not available") || e.contains("no active connection") {
-    format!("{} ({})", lang::t("network.dns.unavailable"), e)
-  } else {
-    e.to_string()
+/// One info group per connected wired interface. Unknown fields are
+/// skipped, and a machine without a wired link gets the empty note.
+fn wired_groups() -> Form {
+  let interfaces = daemon::wired_list().unwrap_or_default();
+  if interfaces.is_empty() {
+    return Form::new().section(FormSection::new().footnote(lang::t("network.wired.none")));
   }
-}
-
-/// Rounded card container in the page palette color (same style as the
-/// General/About/Wi-Fi pages).
-fn card(pal_card: &str) -> gtk::Box {
-  let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  card.set_hexpand(true);
-  crate::UIKit::apply_css(
-    &card,
-    &format!(
-      "box {{ background-color: {}; border-radius: 12px; padding: 12px 16px; }}",
-      pal_card
-    ),
-  );
-  card
-}
-
-/// DNS card: single big title, clickable value, inline editor.
-/// Clicking the value turns it into a text field prefilled with the
-/// current servers (or `1.1.1.1, 8.8.8.8` on DHCP); Enter or leaving the
-/// field saves through the daemon (empty means DHCP) and the card shows
-/// the effective state.
-fn build_dns_card(fg: &'static str, secondary: &'static str, card_color: &str) -> gtk::Box {
-  let card_box = card(card_color);
-
-  let title_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-  title_row.set_hexpand(true);
-  title_row.set_valign(gtk::Align::Center);
-  title_row.set_margin_top(5);
-  title_row.set_margin_bottom(5);
-  let title = markup_label(&lang::t("network.dns"), 15, "bold", fg);
-  title.set_halign(gtk::Align::Start);
-  title.set_xalign(0.0);
-  title.set_hexpand(true);
-  title_row.append(&title);
-  let mode = markup_label("", 13, "normal", secondary);
-  mode.set_halign(gtk::Align::End);
-  mode.set_valign(gtk::Align::Center);
-  title_row.append(&mode);
-  card_box.append(&title_row);
-
-  let value = markup_label("", 13, "normal", secondary);
-  value.set_halign(gtk::Align::Start);
-  value.set_xalign(0.0);
-  value.set_hexpand(true);
-  value.set_margin_bottom(5);
-  value.set_focusable(true);
-  if let Some(cursor) = gtk::gdk::Cursor::from_name("pointer", None) {
-    value.set_cursor(Some(&cursor));
+  let mut form = Form::new();
+  for info in interfaces.iter() {
+    let name = if info.connection.is_empty() {
+      info.interface.clone()
+    } else {
+      info.connection.clone()
+    };
+    let mut section = FormSection::titled(name).row(FormRow::text(
+      lang::t("network.wired.info.state"),
+      info.state.clone(),
+    ));
+    for (key, value) in detail_lines(info) {
+      section = section.row(FormRow::text(lang::t(&key), value));
+    }
+    form = form.section(section);
   }
-  card_box.append(&value);
-
-  let entry = gtk::Entry::new();
-  entry.set_hexpand(true);
-  entry.set_margin_bottom(5);
-  entry.set_visible(false);
-  card_box.append(&entry);
-
-  let hint = markup_label(&lang::t("network.dns.hint"), 12, "normal", secondary);
-  hint.set_halign(gtk::Align::Start);
-  hint.set_xalign(0.0);
-  hint.set_margin_bottom(5);
-  hint.set_visible(false);
-  card_box.append(&hint);
-
-  let error = markup_label("", 12, "normal", "#FF453A");
-  error.set_halign(gtk::Align::Start);
-  error.set_xalign(0.0);
-  error.set_wrap(true);
-  error.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-  error.set_margin_bottom(5);
-  error.set_visible(false);
-  card_box.append(&error);
-
-  // Reload the daemon state into the labels.
-  let value_r = value.clone();
-  let mode_r = mode.clone();
-  let refresh: Rc<dyn Fn()> = Rc::new(move || {
-    let state = daemon::dns_get().unwrap_or(daemon::DnsState {
-      servers: Vec::new(),
-      manual: false,
-    });
-    if state.manual && !state.servers.is_empty() {
-      value_r.set_markup(&span(&state.servers.join(", "), 13, "normal", secondary));
-      mode_r.set_markup(&span("", 13, "normal", secondary));
-    } else {
-      value_r.set_markup(&span(&lang::t("network.dns.automatic"), 13, "normal", secondary));
-      mode_r.set_markup(&span(&lang::t("network.dns.automatic"), 13, "normal", secondary));
-    }
-  });
-  refresh();
-
-  // Save the editor content through the daemon; empty means DHCP.
-  let value_s = value.clone();
-  let entry_s = entry.clone();
-  let hint_s = hint.clone();
-  let error_s = error.clone();
-  let refresh_s = Rc::clone(&refresh);
-  let save: Rc<dyn Fn()> = Rc::new(move || {
-    if !gtk::prelude::WidgetExt::is_visible(&entry_s) {
-      return;
-    }
-    match daemon::dns_set(&entry_s.text().to_string()) {
-      Ok(_) => {
-        refresh_s();
-        entry_s.set_visible(false);
-        hint_s.set_visible(false);
-        error_s.set_visible(false);
-        value_s.set_visible(true);
-      }
-      Err(e) => {
-        error_s.set_markup(&span(&dns_error_text(&e), 12, "normal", "#FF453A"));
-        error_s.set_visible(true);
-      }
-    }
-  });
-
-  // Click the value to edit: prefill current servers, or the suggested
-  // defaults when on DHCP.
-  let value_c = value.clone();
-  let entry_c = entry.clone();
-  let hint_c = hint.clone();
-  let error_c = error.clone();
-  let click = gtk::GestureClick::new();
-  click.set_button(1);
-  click.connect_released(move |_, _, _, _| {
-    let state = daemon::dns_get().unwrap_or(daemon::DnsState {
-      servers: Vec::new(),
-      manual: false,
-    });
-    if state.manual && !state.servers.is_empty() {
-      entry_c.set_text(&state.servers.join(", "));
-    } else {
-      entry_c.set_text(DEFAULT_DNS_INPUT);
-    }
-    value_c.set_visible(false);
-    error_c.set_visible(false);
-    entry_c.set_visible(true);
-    hint_c.set_visible(true);
-    entry_c.grab_focus();
-  });
-  value.add_controller(click);
-
-  // Enter saves; leaving the field saves too.
-  let save_enter = Rc::clone(&save);
-  entry.connect_activate(move |_| save_enter());
-  let save_leave = Rc::clone(&save);
-  let focus = gtk::EventControllerFocus::new();
-  focus.connect_leave(move |_| save_leave());
-  entry.add_controller(focus);
-
-  card_box
+  form
 }
 
-/// One info line in the wired popover: secondary label left, value right.
-fn info_line(label_key: &str, value: &str, pal_fg: &str, pal_secondary: &str) -> gtk::Box {
-  let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-  row.set_hexpand(true);
-  row.set_margin_top(2);
-  row.set_margin_bottom(2);
-  let label = markup_label(&lang::t(label_key), 12, "normal", pal_secondary);
-  label.set_halign(gtk::Align::Start);
-  label.set_xalign(0.0);
-  label.set_hexpand(true);
-  row.append(&label);
-  let detail = markup_label(value, 12, "normal", pal_fg);
-  detail.set_halign(gtk::Align::End);
-  detail.set_xalign(1.0);
-  detail.set_ellipsize(gtk::pango::EllipsizeMode::End);
-  detail.set_max_width_chars(28);
-  row.append(&detail);
-  row
-}
-
-/// Popover content for one interface: every known detail, unknown fields
-/// skipped.
-fn wired_info_box(info: &daemon::WiredInfo, pal_fg: &str, pal_secondary: &str) -> gtk::Box {
-  let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  list.set_hexpand(true);
-  list.set_margin_top(8);
-  list.set_margin_bottom(8);
-  list.set_margin_start(12);
-  list.set_margin_end(12);
-  let mut lines: Vec<(String, String)> = vec![
-    (
-      "network.wired.info.interface".to_string(),
-      info.interface.clone(),
-    ),
-    (
-      "network.wired.info.connection".to_string(),
-      info.connection.clone(),
-    ),
+/// Known detail lines for one interface; unknown fields are skipped.
+fn detail_lines(info: &daemon::WiredInfo) -> Vec<(&'static str, String)> {
+  let mut lines: Vec<(&'static str, String)> = vec![
+    ("network.wired.info.interface", info.interface.clone()),
+    ("network.wired.info.connection", info.connection.clone()),
   ];
   if !info.state.is_empty() {
-    lines.push(("network.wired.info.state".to_string(), info.state.clone()));
+    lines.push(("network.wired.info.state", info.state.clone()));
   }
   if !info.ipv4_addrs.is_empty() {
     lines.push((
-      "network.wired.info.ip".to_string(),
+      "network.wired.info.ip",
       info.ipv4_addrs.join(", "),
     ));
   }
   if let Some(gateway) = &info.gateway {
-    lines.push(("network.wired.info.gateway".to_string(), gateway.clone()));
+    lines.push(("network.wired.info.gateway", gateway.clone()));
   }
   if !info.mac.is_empty() {
-    lines.push(("network.wired.info.mac".to_string(), info.mac.clone()));
+    lines.push(("network.wired.info.mac", info.mac.clone()));
   }
   if let Some(speed) = info.speed_mbps {
     lines.push((
-      "network.wired.info.speed".to_string(),
+      "network.wired.info.speed",
       format!("{} Mb/s", speed),
     ));
   }
   if let Some(mtu) = info.mtu {
-    lines.push(("network.wired.info.mtu".to_string(), mtu.to_string()));
+    lines.push(("network.wired.info.mtu", mtu.to_string()));
   }
   if let Some(driver) = &info.driver {
-    lines.push(("network.wired.info.driver".to_string(), driver.clone()));
+    lines.push(("network.wired.info.driver", driver.clone()));
   }
-  for (key, value) in &lines {
-    list.append(&info_line(key, value, pal_fg, pal_secondary));
-  }
-  list
+  lines
 }
 
-/// One live wired row: connection name plus a "..." menu button opening
-/// the info popover.
-fn wired_row(info: &daemon::WiredInfo, pal_fg: &str, pal_secondary: &str, last: bool) -> gtk::Box {
-  let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-  row.set_hexpand(true);
-  row.set_valign(gtk::Align::Center);
-  row.set_margin_top(5);
-  row.set_margin_bottom(5);
+/// Build the Network detail page.
+pub(crate) fn build(_skin: &Skin, _nav: &Nav) -> PageView {
+  let body = VStack::new()
+    .spacing(BLOCK_GAP)
+    .align(Align::Leading)
+    .child(dns_group())
+    .child(wired_groups());
 
-  let names = gtk::Box::new(gtk::Orientation::Vertical, 1);
-  names.set_hexpand(true);
-  names.set_valign(gtk::Align::Center);
-  let name = markup_label(
-    if info.connection.is_empty() {
-      &info.interface
-    } else {
-      &info.connection
-    },
-    13,
-    "normal",
-    pal_fg,
-  );
-  name.set_halign(gtk::Align::Start);
-  name.set_xalign(0.0);
-  name.set_ellipsize(gtk::pango::EllipsizeMode::End);
-  names.append(&name);
-  let iface = markup_label(&info.interface, 12, "normal", pal_secondary);
-  iface.set_halign(gtk::Align::Start);
-  iface.set_xalign(0.0);
-  names.append(&iface);
-  row.append(&names);
-
-  let menu = gtk::MenuButton::new();
-  menu.set_halign(gtk::Align::End);
-  menu.set_valign(gtk::Align::Center);
-  menu.set_child(Some(&markup_label("…", 15, "bold", pal_secondary)));
-  let popover = gtk::Popover::new();
-  popover.set_child(Some(&wired_info_box(info, pal_fg, pal_secondary)));
-  menu.set_popover(Some(&popover));
-  row.append(&menu);
-
-  if !last {
-    crate::UIKit::apply_css(
-      &row,
-      "box { border-bottom: 1px solid rgba(128,128,128,0.25); }",
-    );
-  }
-  row
-}
-
-/// The Network detail page (example content, directly on the screen).
-pub(crate) fn build_page() -> gtk::Widget {
-  let pal = palette(is_dark());
-
-  let detail = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  detail.set_hexpand(true);
-  detail.set_vexpand(true);
-  detail.set_margin_top(20);
-  detail.set_margin_bottom(20);
-  detail.set_margin_start(24);
-  detail.set_margin_end(24);
-
-  // Header card: blue network icon, title + subtitle, master toggle.
-  let header_card = card(pal.card);
-  let header = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-  header.set_hexpand(true);
-  header.set_valign(gtk::Align::Center);
-
-  if let Some(icon_path) = network_icon_path() {
-    let icon = gtk::Image::from_file(&icon_path);
-    icon.set_pixel_size(HEADER_ICON_PX);
-    icon.set_valign(gtk::Align::Start);
-    header.append(&icon);
-  }
-
-  let titles = gtk::Box::new(gtk::Orientation::Vertical, 2);
-  titles.set_hexpand(true);
-  titles.set_halign(gtk::Align::Fill);
-  let title = markup_label(&lang::t("network.title"), 17, "bold", pal.fg);
-  title.set_halign(gtk::Align::Start);
-  title.set_xalign(0.0);
-  titles.append(&title);
-  let subtitle = markup_label(
-    &lang::t("network.header.subtitle"),
-    13,
-    "normal",
-    pal.secondary,
-  );
-  subtitle.set_halign(gtk::Align::Start);
-  subtitle.set_xalign(0.0);
-  subtitle.set_wrap(true);
-  subtitle.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-  subtitle.set_max_width_chars(48);
-  titles.append(&subtitle);
-  header.append(&titles);
-  header_card.append(&header);
-  detail.append(&header_card);
-
-  let gap = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  gap.set_size_request(-1, 16);
-  detail.append(&gap);
-
-  // DNS card: single big title with click-to-edit value below.
-  detail.append(&build_dns_card(pal.fg, pal.secondary, pal.card));
-
-  let gap2 = gtk::Box::new(gtk::Orientation::Vertical, 0);
-  gap2.set_size_request(-1, 12);
-  detail.append(&gap2);
-
-  // Wired networks: live connected interfaces from the daemon, each
-  // with a "..." menu button for the info popover.
-  let wired = markup_label(
-    &lang::t("network.wired.header"),
-    12,
-    "normal",
-    pal.secondary,
-  );
-  wired.set_halign(gtk::Align::Start);
-  wired.set_margin_bottom(2);
-  detail.append(&wired);
-
-  match daemon::wired_list() {
-    Ok(interfaces) if !interfaces.is_empty() => {
-      let wired_card = card(pal.card);
-      let wired_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-      wired_box.set_hexpand(true);
-      let last = interfaces.len() - 1;
-      for (index, info) in interfaces.iter().enumerate() {
-        wired_box.append(&wired_row(info, pal.fg, pal.secondary, index == last));
-      }
-      wired_card.append(&wired_box);
-      detail.append(&wired_card);
-    }
-    _ => {
-      let none = markup_label(&lang::t("network.wired.none"), 13, "normal", pal.secondary);
-      none.set_halign(gtk::Align::Start);
-      none.set_xalign(0.0);
-      detail.append(&none);
-    }
-  }
-
-  detail.upcast()
+  crate::views::page_shell(
+    crate::views::page_header(crate::views::header_symbol(NETWORK), &header_subtitle(NETWORK)),
+    body,
+  )
 }
 
 #[cfg(test)]
@@ -442,5 +185,43 @@ mod tests {
   #[test]
   fn dns_other_errors_pass_through() {
     assert_eq!(dns_error_text("boom"), "boom");
+  }
+
+  #[test]
+  fn dns_value_shows_manual_servers_or_automatic() {
+    let manual = daemon::DnsState {
+      servers: vec!["1.1.1.1".into(), "8.8.8.8".into()],
+      manual: true,
+    };
+    assert_eq!(dns_value(&manual), "1.1.1.1, 8.8.8.8");
+    let dhcp = daemon::DnsState {
+      servers: vec!["1.1.1.1".into()],
+      manual: false,
+    };
+    assert_eq!(dns_value(&dhcp), lang::t("network.dns.automatic"));
+    let empty = daemon::DnsState {
+      servers: Vec::new(),
+      manual: true,
+    };
+    assert_eq!(dns_value(&empty), lang::t("network.dns.automatic"));
+  }
+
+  #[test]
+  fn detail_lines_skip_unknown_fields() {
+    let info = daemon::WiredInfo {
+      interface: "eth0".to_string(),
+      connection: "Wired".to_string(),
+      state: String::new(),
+      ipv4_addrs: Vec::new(),
+      gateway: None,
+      mac: String::new(),
+      speed_mbps: None,
+      mtu: None,
+      driver: None,
+    };
+    let lines = detail_lines(&info);
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0].1, "eth0");
+    assert_eq!(lines[1].1, "Wired");
   }
 }

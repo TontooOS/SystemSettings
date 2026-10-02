@@ -245,5 +245,10 @@
   "about.apps": "Apps",
   "about.storage": "Speicher",
   "about.unknown": "Unbekannt",
-  "about.version": "Version"
+  "about.version": "Version",
+  "appearance.header.subtitle": "Design, Akzentfarbe und Symbolstil wählen.",
+  "wifi.row.locked": "Gesichert",
+  "wifi.no_networks": "Keine Netzwerke gefunden.",
+  "network.dns.apply": "Anwenden",
+  "general.back": "Zurück"
 }

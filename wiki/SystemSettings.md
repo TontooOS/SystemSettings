@@ -1,197 +1,536 @@
 # SystemSettings
 
-TontooOS Settings basis: a 900x600 TontooUI window with a sidebar on the
-left (Wi-Fi/WLAN and Network categories, blue CoreIcon SF Symbols) and
-the selected detail page on the right. Follows the
-live system Dark/Light scheme and loads `en_us`/`de_de` strings from
-`lang/`.
+TontooOS Settings app on the TontooUI renderer: a 900x600 window whose
+navigation column and detail pages are both owned by one `Sidebar`. All
+pages follow the same shell, follow the live system color scheme through
+the `ThemeWatcher`, use the mandated TontooOS background/text tokens and
+load `en_us`/`de_de` strings from `lang/`.
 
-## Layout
+## Architecture
 
-From left to right the window contains:
-
-1. Sidebar (`Sidebar`, 220px, traffic lights, search, two selectable rows)
-2. Detail page (Wi-Fi page or Network example page, swapped in place on
-   selection, no app rebuild)
-
-```rust
-let mut app = App::with_delegate(lang::t("app.title"), 900, 600, SettingsDelegate);
-app.auto_color_scheme(); // live Dark/Light follow
-app.run();
+```
+src/
+├── main.rs          entry point: lang::init() + TontooUI::renderer::window::run
+├── app.rs           SettingsApp: Sidebar, pages, ThemeWatcher, sheet host
+├── daemon.rs        JSON-over-unix-socket client for the settings daemon
+├── lang.rs          locale store for lang/en_us.json and lang/de_de.json
+└── views/
+    ├── mod.rs       page shell, Skin, navigation table, Nav, SharedPage
+    ├── sheet.rs     one modal host: Join, Wallpaper, Notice
+    ├── simple.rs    22 table-driven placeholder categories
+    ├── wifi.rs      radio switch, known networks, live scan, join sheet
+    ├── network.rs   DNS field plus wired interface groups
+    ├── general.rs   navigation list plus the three pushed details
+    ├── appearance.rs theme/style/color previews (display only)
+    ├── displays.rs  output info, brightness slider, refresh rate
+    ├── wallpaper.rs current wallpaper, fill mode, apply sheet
+    ├── about.rs     device, TontooOS and storage groups
+    ├── datetime.rs  date/time, 24-hour switch, timezone dropdown
+    └── locale.rs    languages, region, keyboard layout and variants
 ```
 
-## Sidebar
+The old GTK build needed a page-swap poller, per-page `timeout_add_local`
+timers and a `Send + Sync` dance for every widget callback. The Vello
+renderer has none of that: callbacks are `Box<dyn FnMut>`, the frame
+clock is `App::draw(..., time_secs)`, and the `Sidebar` already draws the
+selected page. That removed roughly 6,500 lines of plumbing.
 
-`TontooUI::Sidebar` with the `coreicon` feature (default). Both rows use
-SF Symbols on a solid blue fill (`Color::from_rgb(0, 122, 255)`), so
-CoreIcon generates the icon PNGs at render time. A sign-in header
-(avatar plus `sidebar.signin.title`/`sidebar.signin.subtitle`, display
-only) is prepended to the scrollable sidebar list at `to_gtk` time, so
-it scrolls away with the content while the search field stays sticky;
-the Sidebar widget has no header slot.
+## Window
 
-| Method | Value |
+The window is full bleed. There is no titlebar: the `Sidebar` owns the
+traffic lights and draws them over its own column, exactly like Apple
+Settings. The page title therefore lives in the sidebar toolbar row,
+which TontooUI fills with the selected row's label (or whatever
+`set_title` overrides).
+
+```rust
+// src/main.rs
+mod app;
+mod daemon;
+mod lang;
+mod views;
+
+sdk::preinclude!();
+
+use TontooUI::renderer::window::run;
+
+fn main() {
+  lang::init();
+  if let Err(err) = run(
+    &lang::t("app.title"),
+    views::WINDOW_W,
+    views::WINDOW_H,
+    app::SettingsApp::new(),
+  ) {
+    eprintln!("systemsettings: {err}");
+    std::process::exit(1);
+  }
+}
+```
+
+### `SettingsApp`
+
+```rust
+pub struct SettingsApp { /* private */ }
+
+impl SettingsApp {
+    pub fn new() -> Self
+}
+
+impl TontooUI::renderer::window::App for SettingsApp {
+    fn draw(&mut self, scene, fonts, images, viewport, time_secs);
+    fn background(&self) -> Color;
+    fn wants_backdrop(&self) -> bool;
+    fn drag_region(&self) -> Option<(f32, f32, f32, f32)>;
+    fn cursor(&self, x: f64, y: f64) -> CursorKind;
+    fn mouse_down(&mut self, x: f64, y: f64);
+    fn mouse_up(&mut self, x: f64, y: f64);
+    fn mouse_move(&mut self, x: f64, y: f64);
+    fn mouse_wheel(&mut self, dx: f64, dy: f64);
+    fn set_focused(&mut self, focused: bool);
+    fn text(&mut self, text: &str);
+    fn key(&mut self, key: Key);
+}
+```
+
+`draw` runs the whole per-frame contract:
+
+1. `ThemeWatcher::poll` / `palette` refresh the `Skin`; a theme flip
+   schedules a rebuild.
+2. `poll_wifi` reads the live radio state every 2 seconds and compares a
+   coarse fingerprint (SSID sets, no signal percentages), so a running
+   scan never resets the scroll position.
+3. `pump` turns queued page requests into a sheet and applies a finished
+   sheet to the daemon.
+4. `rebuild` re-runs every page builder and hands the pages to a fresh
+   `Sidebar`, keeping the column width, the collapse state and the search
+   query.
+5. `Sidebar::place` + `Sidebar::draw` draw the column and the selected
+   page; the sheet draws last when open.
+
+Input order matters and matches the TontooUI contract: while a sheet is
+open it consumes every event, then the traffic lights, then the sidebar
+(which forwards the rest into the page).
+
+## Page shell
+
+Every page is built by `page_shell`, so `PageView::form_mut` and the
+theme walker can rely on the shape:
+
+```text
+ScrollView
+└── Padding(PAGE_MARGIN)
+    └── VStack (gap HEADER_GAP)
+        ├── header   HStack: Back button? + SFSymbolImage + BasicText
+        └── content  VStack (gap BLOCK_GAP): Form / lists / blocks
+```
+
+### `page_shell`
+
+```rust
+pub(crate) fn page_shell(header: HStack, body: impl View + 'static) -> PageView
+```
+
+Wraps `body` in the standard content stack, then header plus content in
+the shell stack, then the shell in a `Padding` inside a `ScrollView`. The
+page title is not repeated inside the page: the sidebar toolbar already
+shows it.
+
+### `PageView`
+
+```rust
+pub(crate) struct PageView { /* private */ }
+
+impl PageView {
+    pub(crate) fn bare(scroll: ScrollView) -> Self
+    pub(crate) fn content_mut(&mut self) -> Option<&mut VStack>
+    pub(crate) fn form_mut(&mut self) -> Option<&mut Form>
+    pub(crate) fn type_text(&mut self, text: &str)
+    pub(crate) fn key(&mut self, key: Key) -> bool
+    pub(crate) fn theme(&mut self, skin: &Skin, focused: bool, viewport: Viewport)
+    pub(crate) fn wants_backdrop(&mut self) -> bool
+    pub(crate) fn wants_text_cursor(&mut self) -> bool
+    pub(crate) fn hover(&mut self, x: f64, y: f64)
+}
+```
+
+`PageView` is the app's only handle into a built page, because the
+`Sidebar` boxes its pages as `Box<dyn View>`. `form_mut` finds the first
+`Form` in the content stack so `App::text` and `App::key` can reach the
+page's inline fields, and so the picker panels get `set_viewport`.
+
+`theme` walks the stack by index. `VStack` and `HStack` expose
+`child_mut::<T>(index)`, so the walker tries each supported element type
+once per slot and the first match claims it; nested stacks recurse two
+levels, which covers every page shape in this app.
+
+### `SharedPage`
+
+```rust
+#[derive(Clone)]
+pub(crate) struct SharedPage(Rc<RefCell<PageView>>);
+
+impl SharedPage {
+    pub(crate) fn new(page: PageView) -> Self
+    pub(crate) fn with<R>(&self, f: impl FnOnce(&mut PageView) -> R) -> R
+}
+```
+
+A page handle shared by the app (which themes it and forwards input) and
+the `Sidebar` (which owns and draws it). The same `SharedPage` clone goes
+into `Sidebar::page`, so `draw` and `theme` always see the same tree.
+
+## Navigation
+
+```rust
+pub(crate) struct Entry {
+    pub label: &'static str,
+    pub symbol: &'static str,
+}
+
+pub(crate) const ENTRIES: [Entry; PAGE_COUNT] = [/* 28 rows */];
+
+pub(crate) fn sidebar_item(index: usize) -> SidebarItem
+pub(crate) fn header_symbol(index: usize) -> &'static str
+pub(crate) fn page_label(index: usize) -> String
+pub(crate) fn header_subtitle(index: usize) -> String
+```
+
+The table is the single source of truth for the sidebar labels, the row
+icons and the page header symbols, so a row and its page can never drift
+apart. Indices are named constants (`WIFI`, `NETWORK`, `GENERAL`, ...)
+because pages dispatch on them.
+
+| Index | Category | Module |
+|---|---|---|
+| 0 | Wi-Fi | `wifi` |
+| 1 | Bluetooth | `simple` |
+| 2 | Network | `network` |
+| 3 | Battery | `simple` |
+| 4 | General | `general` |
+| 5 | Accessibility | `simple` |
+| 6 | Appearance | `appearance` |
+| 7 | Desktop & Dock | `simple` |
+| 8 | Displays | `displays` |
+| 9 | Menu Bar | `simple` |
+| 10 | Tinti AI | `simple` |
+| 11 | Spotlight | `simple` |
+| 12 | Wallpaper | `wallpaper` |
+| 13 | Notifications | `simple` |
+| 14 | Sound | `simple` |
+| 15 | Focus | `simple` |
+| 16 | Screen Time | `simple` |
+| 17 | Lock Screen | `simple` |
+| 18 | Privacy & Security | `simple` |
+| 19 | Touch ID & Password | `simple` |
+| 20 | Users & Groups | `simple` |
+| 21 | Internet Accounts | `simple` |
+| 22 | Octo Cloud | `simple` |
+| 23 | Keyboard | `simple` |
+| 24 | Mouse & Trackpad | `simple` |
+| 25 | Printers | `simple` |
+| 26 | App Settings | `simple` |
+| 27 | Developer | `simple` |
+
+Three bundled PNGs that used to be sidebar icons (Appearance, Tinti AI,
+Launchpad for App Settings) are now SF Symbols
+(`circle.lefthalf.filled`, `sparkles`, `square.grid.2x2.fill`): the
+`Sidebar` resolves row icons through `SFSymbolImage`, which does not take
+file paths.
+
+### Hidden detail pages
+
+About, Date & Time and Language & Region stay out of the sidebar, as in
+the GTK build. Their General rows push the detail instead:
+
+```rust
+pub(crate) const ABOUT_HIDDEN: usize = 0;
+pub(crate) const DATETIME_HIDDEN: usize = 1;
+pub(crate) const LOCALE_HIDDEN: usize = 2;
+
+pub(crate) fn hidden_title(pushed: usize) -> &'static str
+```
+
+`general::build` returns the pushed detail when `nav.current()` is set,
+and the detail header carries a `general.back` button; `App::key`
+handles `Escape` as well.
+
+### `Nav`
+
+```rust
+#[derive(Clone, Default)]
+pub(crate) struct Nav {
+    pub pushed: Rc<Cell<Option<usize>>>,
+    pub join: Rc<Cell<Option<(String, bool)>>>,
+    pub wallpaper: Rc<Cell<Option<crate::daemon::WallpaperEntry>>>,
+    pub dirty: Rc<Cell<bool>>,
+}
+
+impl Nav {
+    pub(crate) fn new() -> Self
+    pub(crate) fn push(&self, index: usize)
+    pub(crate) fn pop(&self)
+    pub(crate) fn current(&self) -> Option<usize>
+    pub(crate) fn request_join(&self, ssid: &str, secured: bool)
+    pub(crate) fn take_join(&self) -> Option<(String, bool)>
+    pub(crate) fn request_wallpaper(&self, entry: crate::daemon::WallpaperEntry)
+    pub(crate) fn take_wallpaper(&self) -> Option<crate::daemon::WallpaperEntry>
+    pub(crate) fn touch(&self)
+}
+```
+
+The one channel between pages and the app. A widget callback captures a
+`Nav` clone and reports through it; the app drains the queue once per
+frame and turns it into a sheet, a daemon call or a rebuild. Nothing in a
+callback touches the element tree.
+
+## Theme
+
+```rust
+#[derive(Clone, Copy)]
+pub(crate) struct Skin {
+    pub bg: Color,
+    pub text: Color,
+    pub divider: Color,
+    pub accent: Color,
+    pub mode: ThemeMode,
+    pub glass: GlassAmount,
+    pub dark: bool,
+}
+
+impl Skin {
+    pub(crate) fn from_theme(
+        mode: ThemeMode,
+        accent: Color,
+        glass: GlassAmount,
+        palette: &Palette,
+    ) -> Self
+}
+```
+
+### Colors
+
+Only the mandated TontooOS tokens are hard coded. Everything else comes
+from the TontooUI `ThemeWatcher` palette, so the app defines no secondary
+color of its own.
+
+| Token | Dark | Light | Source |
+|---|---|---|---|
+| Window background | `#1b2022` | `#ffffff` | `BG_DARK` / `BG_LIGHT` |
+| Body text | `#d8d9d9` | `#272727` | `TEXT_DARK` / `TEXT_LIGHT` |
+| Group body, dividers, dim labels | — | — | `palette.divider`, `Form` tokens |
+| Accent | — | — | `theme.accent.color()` |
+
+The GTK build had its own `Palette { fg, secondary, card }` and hand-picked
+sidebar tile colors per category. All of that is gone; `Form` already
+paints its group bodies and dividers from the theme, and the sidebar tints
+row icons with the accent.
+
+Text uses SF Pro through TontooUI's CoreText `FontSystem`; the app no
+longer names a font family or builds Pango markup.
+
+| Helper | Signature |
 |---|---|
-| `item` | `lang::t("sidebar.wifi")` + `SidebarIcon::sf("wifi", blue)` |
-| `item` | `lang::t("sidebar.bluetooth")` + `SidebarIcon::sf("antenna.radiowaves.left.and.right", blue)` |
-| `item` | `lang::t("sidebar.network")` + `SidebarIcon::sf("network", blue)` |
-| `item` | `lang::t("sidebar.battery")` + `SidebarIcon::sf("battery.100", green)` |
-| `section` | `""` (empty gap between Network and General) |
-| `item` | `lang::t("sidebar.general")` + `SidebarIcon::sf("gear", gray)` |
-| `item` | `lang::t("sidebar.accessibility")` + `SidebarIcon::sf("figure.wave.circle", blue)` |
-| `item` | `lang::t("sidebar.appearance")` + `SidebarIcon::file(...)` (bundled PNG, used as-is) |
-| `item` | `lang::t("sidebar.desktop_dock")` + `SidebarIcon::sf("menubar.dock.rectangle", black)` |
-| `item` | `lang::t("sidebar.displays")` + `SidebarIcon::sf("sun.max.fill", blue)` |
-| `item` | `lang::t("sidebar.menu_bar")` + `SidebarIcon::sf("switch.2", gray)` |
-| `item` | `lang::t("sidebar.tinti_ai")` + `SidebarIcon::file(...)` (bundled PNG, used as-is) |
-| `item` | `lang::t("sidebar.spotlight")` + `SidebarIcon::sf("magnifyingglass", gray)` |
-| `item` | `lang::t("sidebar.wallpaper")` + `SidebarIcon::sf("atom", teal)` |
-| `section` | `""` (empty gap before the Lock Screen group) |
-| `item` | `lang::t("sidebar.lock_screen")` + `SidebarIcon::sf("lock.fill", black)` |
-| `item` | `lang::t("sidebar.privacy")` + `SidebarIcon::sf("hand.raised.fill", blue)` |
-| `item` | `lang::t("sidebar.touch_id")` + `SidebarIcon::sf("touchid", pink)` |
-| `item` | `lang::t("sidebar.users")` + `SidebarIcon::sf("person.2.fill", gray)` |
-| `section` | `""` (empty gap before the Internet Accounts group) |
-| `item` | `lang::t("sidebar.internet_accounts")` + `SidebarIcon::sf("mail.stack.fill", blue)` |
-| `item` | `lang::t("sidebar.octo_cloud")` + `SidebarIcon::sf("icloud.fill", orange)` |
-| `section` | `""` (empty gap before the Keyboard group) |
-| `item` | `lang::t("sidebar.keyboard")` + `SidebarIcon::sf("keyboard.fill", gray)` |
-| `item` | `lang::t("sidebar.mouse")` + `SidebarIcon::sf("cursorarrow", gray)` |
-| `item` | `lang::t("sidebar.printers")` + `SidebarIcon::sf("printer.fill", gray)` |
-| `section` | `""` (empty gap before the App Settings group) |
-| `item` | `lang::t("sidebar.app_settings")` + `SidebarIcon::file(...)` (bundled PNG, used as-is) |
-| `section` | `""` (empty gap before the Developer group) |
-| `item` | `lang::t("sidebar.developer")` + `SidebarIcon::sf("hammer.fill", gray)` |
-| `section` | `""` (empty gap before the Notifications group) |
-| `item` | `lang::t("sidebar.notifications")` + `SidebarIcon::sf("bell.badge.fill", red)` |
-| `item` | `lang::t("sidebar.sound")` + `SidebarIcon::sf("speaker.wave.3.fill", pink)` |
-| `item` | `lang::t("sidebar.focus")` + `SidebarIcon::sf("moon.fill", indigo)` |
-| `item` | `lang::t("sidebar.screen_time")` + `SidebarIcon::sf("hourglass", indigo)` |
-| `selected` | Stored index (survives rebuilds) |
-| `search_placeholder` | `lang::t("sidebar.search")` |
-| `width` | `220.0` |
+| `parse_color` | `pub(crate) fn parse_color(hex: &str) -> Color` |
+| `accent_hex` | `pub(crate) fn accent_hex(color: Color) -> String` |
 
-`SettingsRoot` (`src/views/root.rs`) stores the sidebar and all detail
-pages. GTK widgets are not `Send + Sync`, so the `on_select` handler
-(which must be both) only records the index in shared navigation state
-(`NavState`: selection plus back/forward history with branching); a
-lightweight main-thread poller (100ms) swaps the page, refreshes the
-toolbar title and the button sensitivity, and stops itself once its
-containers leave the window. The sidebar keeps its own blue highlight.
+## Pages
 
-## Toolbar
+### `simple` — the placeholder categories
 
-Above the detail content sits a toolbar: a TontooUI `Toolbar` with two
-`ToolbarItem`s (`chevron.backward`, `chevron.forward`) sharing one glass
-capsule background (SF icon glyphs, matching the Finder navigation),
-plus the current page title (bold 15pt). No divider line between
-buttons and title. The toolbar sits outside any `ScrolledWindow`, so it
-stays visible when the page content scrolls. Back walks
-the selection history, forward re-enters branched entries; both disable
-at the history ends. Layout only, no app design dependency.
+```rust
+pub(crate) enum Row {
+    Info(&'static str, &'static str),
+    Toggle(&'static str, bool),
+}
 
-## Wi-Fi header
+pub(crate) struct SimplePage {
+    pub index: usize,
+    pub master: Option<(&'static str, bool)>,
+    pub caption: Option<&'static str>,
+    pub rows: &'static [Row],
+}
+```
 
-The detail page starts with a header card directly on the screen: the blue
-`wifi` SF Symbol icon (rendered by `wifi_icon_path` with the exact sidebar
-artwork parameters: solid `#007AFF` fill, white glyph, cached under the
-temp dir), the title plus a two-line subtitle, and the toggle pinned to
-the top right. The card uses the shared style (`pal.card` background,
-12px radius, `12px 16px` padding, like General/About). When icon
-generation fails the row degrades to titles plus toggle.
+Twenty-two categories had near-identical GTK modules (about 130 lines
+each of `info_row`, `toggle_row`, `markup_label` and margin juggling).
+They are now one table plus one `build`, rendered from `Form`,
+`FormRow::text`, `FormRow::toggle`, `Toggle` and `Spacer`. The switches
+still only report to stdout, exactly like the GTK build, until the
+category gets a real backend.
 
-| Key | en_us | de_de |
-|---|---|---|
-| `wifi.header.subtitle` | `Set up Wi-Fi to wirelessly connect your computer to the internet. Turn on Wi-Fi, then choose a network to join.` | `Richte WLAN ein, um deinen Computer drahtlos mit dem Internet zu verbinden. Schalte WLAN ein und wähle dann ein Netzwerk aus.` |
-| `wifi.join.password` | `Password` | `Passwort` |
-| `wifi.join.connect` | `Connect` | `Verbinden` |
-| `wifi.join.cancel` | `Cancel` | `Abbrechen` |
-| `wifi.join.password_required` | `Password required.` | `Passwort erforderlich.` |
-| `wifi.known.header` | `Known Networks` | `Bekannte Netzwerke` |
-| `wifi.networks.header` | `Networks` | `Netzwerke` |
-| `wifi.no_adapter` | `Your Computer doesn't have Wi-Fi` | `Dein Computer hat kein WLAN` |
+`every_index_is_covered_exactly_once` keeps the table and the dedicated
+modules in sync, and `every_row_key_resolves` fails the build when a lang
+key goes missing.
 
-## Network list
+### `wifi`
 
-`resolve_state` reads the radio state from the daemon backend
-(`src/daemon.rs`, `wifi_status` with `available`/`enabled`):
+```rust
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum Radio {
+    Unreachable,
+    NoAdapter,
+    Off,
+    On { known: Vec<Row>, networks: Vec<Row> },
+}
 
-- No adapter (`available: false`): the Known Networks and Networks
-  sections each show the `wifi.no_adapter` note, and the header toggle
-  is off and insensitive.
-- Radio off: only the header with the toggle stays visible, no sections
-  below.
-- Radio on: the Known Networks section (from `wifi_known_list`, most
-  recently connected first, no signal bars) plus the live scan list
-  (`wifi_list`).
-- Daemon unreachable: example rows under the Networks header.
+pub(crate) fn resolve_state() -> Radio
+pub(crate) fn fingerprint(state: &Radio) -> String
+pub(crate) fn is_secured(security: &str) -> bool
+```
 
-The header toggle applies `wifi_enable`/`wifi_disable` and raises a
-refresh flag; a `timeout_add_local` poller re-renders the page on the
-main thread (the TontooUI toggle handler must be Send + Sync and cannot
-touch GTK directly).
+The header row carries the radio switch pinned to the trailing edge via a
+`Spacer`. The two network lists are `BasicOutlineGroup` rows: picking one
+calls `nav.request_join(ssid, secured)`, and the app opens the join
+sheet. Rows show the SSID, the signal percentage for a live scan and the
+localized `wifi.row.locked` marker for a secured network.
 
-Each compact row shows the blue `wifi` icon
-(22px), four signal bars for scan rows (filled count from `signal_pct`,
-hidden for known rows without a live signal), the SSID
-(13pt) and a small gray `lock.fill` badge (14px) when the network is
-secured (anything but `OPEN`). Rows sit directly on the screen with a
-thin separator, no card behind them. Clicking a row
-opens the join dialog: password entry for secured networks (error label
-for empty passwords and failed connects), direct connect for open ones.
-A successful connect closes the dialog and re-renders the page; the
-daemon stores the network as known (encrypted password, system-wide)
-and auto-joins it at startup.
+`fingerprint` deliberately leaves the signal percentage out, so a scan in
+progress does not rebuild the page (and reset the scroll position) every
+two seconds.
 
-## Window bar
+### `network`
 
-There is no system decoration bar: `SettingsRoot` stores the `Sidebar`
-and exposes it via `children()`, so UIKit's `hides_window_bar_recursive`
-finds it and hides the bar. The traffic lights render directly on the
-sidebar, like Apple Settings.
+DNS is a `FormRow::text` (a native borderless right-aligned field) plus an
+Apply button. The field only feeds a draft `Rc<RefCell<String>>`; the
+button commits it through the daemon, so a half-typed address never
+reaches NetworkManager. Empty input means DHCP. `dns_error_text`
+classifies failures: an `invalid IPv4` error gets the format hint, a
+missing NetworkManager or active connection gets the unavailable note.
 
-## Colors
+Each connected interface gets its own titled `FormSection` with the known
+fields; unknown ones are skipped.
 
-All text uses the `SF Pro Display` family, resolved from the system font
-paths (`/usr/share/fonts/OTF/SF-Pro-Display-Regular.otf`, etc.). The
-content area follows Apple Settings: gray sidebar, contrasting content.
+### `displays`
 
-| Token | Dark | Light |
-|---|---|---|
-| Sidebar | `#1C1C1E` | `#EBEBF0` |
-| Content | `#1d1d1d` | `#FFFFFF` |
-| Cards | `#2C2C2E` | `#F5F5F7` |
-| Primary text | `#F5F5F7` | `#1E1E1E` |
-| Secondary text | `#A1A1A6` | `#6E6E73` |
-| Wi-Fi icon | `#007AFF` | `#007AFF` |
+Output info, night light and refresh rate are `FormRow` values; the
+brightness slider is a native `Slider` that dims the desktop live. The
+refresh rate options are the standard rates up to the monitor max plus
+every reported rate, capped at 1000 Hz, sorted and deduplicated by
+`refresh_rates`.
 
-The scheme is read from `uikit::app::current_color_scheme()` with a
-`ColorScheme::detect_system()` fallback, so the window matches the live
-system theme on every rebuild.
+### `general`
+
+Ten rows in four groups (`[3, 1, 4, 2]`), rendered as tappable
+`BasicOutlineGroup` blocks with a trailing chevron. A group with no
+navigable row is not selectable at all. `target_for` maps the About,
+Date & Time and Language & Region rows onto the hidden details; every
+other row is display only.
+
+### `appearance`
+
+Three theme thumbnails from `Resources/`, a row of accent color dots and
+the four icon and widget style previews rendered through the CoreIcon
+`AppIcon` pipeline (`Default`, `Dark`, `TintedLight`, `TintedDark`,
+cached per style in the temp dir). Display only. The accent dot matching
+the live theme accent gets a stroke.
+
+### `wallpaper`
+
+The current wallpaper preview plus the fill mode dropdown, then one
+`BasicOutlineGroup` per group. Picking a row calls
+`nav.request_wallpaper(entry)` and the app opens the apply sheet with the
+Light/Auto/Dark variant.
+
+```rust
+pub(crate) const FILL_ORDER: &[&str] = &["fill", "fit", "stretch", "center", "tile"];
+pub(crate) const PREVIEW_ORDER: &[&str] = &["light", "auto", "dark"];
+
+pub(crate) fn thumb_cache_path(cache_dir: &Path, source: &Path) -> Option<PathBuf>
+pub(crate) fn cached_thumb(source: &Path) -> Option<PathBuf>
+pub(crate) fn split_preview(light: &Path, dark: &Path, width: u32, height: u32) -> Option<PathBuf>
+pub(crate) fn preview_file(entry: &daemon::WallpaperEntry, variant: &str) -> Option<PathBuf>
+```
+
+`gdk-pixbuf` and the `image` crate are gone; CoreImage does the work.
+`FileImage` downsamples on load, so the grid does not need pre-scaled
+thumbnails. The one case that still needs an offline composite is the
+Auto preview: `split_preview` loads two cached thumbnails through
+CoreImage, walks the pixels once (the divider drifts right going down, so
+left stays light and right goes dark) and writes a PNG next to the other
+thumbnails. That keeps a 6K original out of the popup's critical path.
+
+> **Note:** the Browse... button is gone. It needs an `NSOpenPanel`
+> equivalent, and TontooLibs does not have a file-open element yet, so
+> custom uploads are unreachable until one exists.
+
+### `about`
+
+Device, TontooOS and storage groups, all read live with the localized
+Unknown fallback: `/etc/hostname`, `/proc/cpuinfo`, `/proc/meminfo`,
+`/proc/sys/kernel/osrelease`, the daemon `get_os`, and `df -B1` for
+storage. The app count walks `/Applications`, every user's
+`~/Applications` and `/System/Applications`, deduplicating symlinked
+bundles by canonical path. The OS logo prefers the CoreIcon versioned
+asset and falls back to the bundled `app_icon.png`.
+
+### `datetime`
+
+Date and time from the Unix epoch through a civil-from-days conversion
+(no date crate), the 24-hour switch through the daemon, and a timezone
+dropdown built from the zone list the daemon reports. Automatic time
+stays locked on: the daemon enforces NTP at startup and the UI offers no
+way to turn it off.
+
+### `locale`
+
+System language list with a checkmark on the active entry, a region
+dropdown with the full country list, and a keyboard group with the Auto
+Detect switch plus the layout and variant dropdowns. Picking a layout
+clears the variant and asks for a rebuild, so the variant list follows
+the picked layout. Everything applies through the daemon `localectl`
+backend.
+
+Long searchable lists use the native `FormRow::picker` dropdown rather
+than a custom search sheet, which is why the old popovers with
+`gtk::SearchEntry` plus `gtk::ListBox` are gone.
+
+## Sheets
+
+```rust
+pub(crate) enum Kind {
+    Join { ssid: String, secured: bool },
+    Wallpaper { entry: daemon::WallpaperEntry, variant: usize },
+    Notice { title: String, message: String },
+}
+
+pub(crate) enum Action {
+    Join { ssid: String, password: String },
+    Wallpaper { kind: String, id: String, variant: String },
+    Dismiss,
+}
+
+pub(crate) struct Sheets { /* private */ }
+
+impl Sheets {
+    pub(crate) fn new() -> Self
+    pub(crate) fn is_open(&self) -> bool
+    pub(crate) fn open(&mut self, kind: Kind, skin: &Skin)
+    pub(crate) fn close(&mut self)
+    pub(crate) fn pump(&mut self)
+    pub(crate) fn take_action(&mut self) -> Option<Action>
+}
+```
+
+One `BasicSheet` host for every modal, so the app routes input to and
+drains a single overlay. `open` builds the content and resets the shared
+flags; `pump` keeps the wallpaper preview in sync with the segmented
+picker, then turns the button flags into one `Action`. The app drains
+that action and talks to the daemon, so a failed join shows up as a
+`Notice` sheet with the daemon message instead of a silent no-op.
+
+`Enter` submits, `Escape` cancels. While a sheet is open it swallows every
+event, which is what keeps the page behind it from receiving presses.
 
 ## Localization
 
-Strings live in `lang/en_us.json` and `lang/de_de.json` (only these
-two). `src/lang.rs` detects German from `LANGUAGE`, `LC_ALL`, `LANG`
-or `/etc/locale.conf` and falls back to `en_us`.
+Strings live in `lang/en_us.json` and `lang/de_de.json` (only these two).
+`src/lang.rs` detects German from `LANGUAGE`, `LC_ALL`, `LANG` or
+`/etc/locale.conf` and falls back to `en_us`.
 
 `Resources/lang/` holds copies of both files: TBuild copies only
 `Resources/` into the `.app` bundle (root `lang/` is used just for the
 localized `name` in `Info.tontoo`). Keep both locations in sync.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `app.title` | `Settings` | `Einstellungen` |
-| `sidebar.search` | `Search` | `Suchen` |
-| `sidebar.wifi` | `Wi-Fi` | `WLAN` |
-| `wifi.title` | `Wi-Fi` | `WLAN` |
-| `wifi.toggle` | `Wi-Fi` | `WLAN` |
-| `wifi.networks.header` | `Networks` | `Netzwerke` |
-| `wifi.example.note` | `Example content: connect to a network to get started.` | `Beispielinhalt: Verbinde dich mit einem Netzwerk, um zu starten.` |
-| `wifi.row.home` | `HomeNet` | `HeimNetz` |
-| `wifi.row.home.detail` | `Connected` | `Verbunden` |
-| `wifi.row.lab` | `TontooLab` | `TontooLabor` |
-| `wifi.row.lab.detail` | `Secured` | `Gesichert` |
 
 ### `t(key)`
 
@@ -199,674 +538,65 @@ localized `name` in `Info.tontoo`). Keep both locations in sync.
 pub fn t(key: &str) -> String
 ```
 
-Returns the localized string for `key`. Returns the key itself when the
-locale file or key is missing, so the UI never renders empty text.
+Returns the localized string, or the key itself when it is missing, so a
+gap shows up as a raw key rather than an empty label.
 
-## Usage / Example
+### Keys added by the port
+
+| Key | en_us | de_de |
+|---|---|---|
+| `appearance.header.subtitle` | `Choose the theme, accent color and icon style.` | `Design, Akzentfarbe und Symbolstil wählen.` |
+| `general.back` | `Back` | `Zurück` |
+| `network.dns.apply` | `Apply` | `Anwenden` |
+| `wifi.no_networks` | `No networks found.` | `Keine Netzwerke gefunden.` |
+| `wifi.row.locked` | `Secured` | `Gesichert` |
+
+## Daemon
+
+`src/daemon.rs` is unchanged by the port: newline-delimited JSON over a
+`UnixStream` at `/run/tontoo-settings.sock`, overridable with
+`SETTINGS_SOCKET`. It is pure data, so it never touched GTK and needed no
+work. It covers Wi-Fi, DNS, wired interfaces, date and time, locale,
+wallpaper, display and OS info.
+
+## Errors
+
+| Where | Behavior |
+|---|---|
+| Daemon socket unreachable | Every call returns `Err(String)`; pages fall back to a placeholder state (Wi-Fi shows example rows, wallpaper shows the "no wallpaper" note, wired shows the empty note) |
+| `dns_set` validation | `dns_error_text` prefixes the format hint |
+| `dns_set` without NetworkManager | `dns_error_text` prefixes the unavailable note |
+| `wallpaper_apply` fails | Logged; the sheet stays out of the way and the page is not touched |
+| Wi-Fi join fails | Logged plus a `Notice` sheet carrying the daemon message |
+| CoreImage cannot decode a wallpaper | `preview_file` and `cached_thumb` return `None`; `FileImage` draws its theme placeholder |
+| Missing `Resources/*.png` | Appearance and About fall back to the SF Symbol arm |
+
+## Tests
+
+77 unit tests, no GTK or windowing fixture required:
+
+| Module | Coverage |
+|---|---|
+| `daemon` | Protocol roundtrips against a `UnixListener` mock |
+| `lang` | Locale detection, missing-key fallback |
+| `views` | Navigation table, token values, `Nav` queues, color helpers |
+| `simple` | Index coverage, row and subtitle keys resolve |
+| `wifi` | `is_secured`, signal clamping, row labels, fingerprint stability |
+| `network` | DNS error classification, value formatting, detail lines |
+| `displays` | Refresh rate options, mode and output text |
+| `general` | Row table, group bounds, navigation targets |
+| `about` | `/proc` parsing, unit formatting, app counting, `df` parsing |
+| `datetime` | Civil date conversion, both clock modes |
+| `wallpaper` | Fill order, thumb cache keys, split preview pixels |
+
+Run them with:
 
 ```bash
-cargo run
-LANG=de_DE.UTF-8 cargo run
+cargo test
 ```
-
-The first command shows English strings (`Wi-Fi`), the second German
-strings (`WLAN`).
-
-## Bluetooth page
-
-Example content (`src/views/bluetooth.rs`): header with the blue
-`antenna.radiowaves.left.and.right` icon (no plain `bluetooth` symbol
-exists in CoreIcon, same convention as the TontooUI demo), title,
-subtitle and a master toggle, then a Devices section (Tontoo Buds on,
-Tontoo Mouse off, each with an on/off toggle).
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.bluetooth` | `Bluetooth` | `Bluetooth` |
-| `bluetooth.title` | `Bluetooth` | `Bluetooth` |
-| `bluetooth.header.subtitle` | `Turn on Bluetooth to connect keyboards, headphones and other devices.` | `Schalte Bluetooth ein, um Tastaturen, Kopfhörer und andere Geräte zu verbinden.` |
-| `bluetooth.devices.header` | `Devices` | `Geräte` |
-| `bluetooth.device.buds` | `Tontoo Buds` | `Tontoo Buds` |
-| `bluetooth.device.mouse` | `Tontoo Mouse` | `Tontoo-Maus` |
-
-## Network page
-
-Example content (`src/views/network.rs`): header card with the blue `network`
-icon, title and subtitle (same 1:1 header layout as Wi-Fi and Bluetooth,
-without a toggle), then the DNS card and the live Wired Networks card
-(connected Ethernet interfaces from the daemon `wired_list`, each row
-with the connection name, the interface below and a "..." menu button
-opening an info popover: interface, connection, state, IP addresses,
-gateway, MAC, speed, MTU, driver — unknown fields skipped; without
-connected interfaces the `network.wired.none` note shows instead). All
-cards use the shared style (`pal.card` background, 12px
-radius, `12px 16px` padding).
-
-The DNS card shows the single big `network.dns` title with the effective
-servers (or `network.dns.automatic`) below. Clicking the value turns it
-into a text field prefilled with the current servers (`1.1.1.1, 8.8.8.8`
-when on DHCP); Enter or leaving the field saves through the daemon
-(`dns_set`, empty means DHCP) and the card shows the effective state.
-Invalid input shows `network.dns.invalid` plus the daemon error, while a
-missing NetworkManager (or no active connection, e.g. on dev machines
-without `nmcli`) shows `network.dns.unavailable` plus the daemon error.
-The daemon applies the servers to the active NetworkManager connection and
-reactivates it, so the change takes effect system-wide immediately.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.network` | `Network` | `Netzwerk` |
-| `network.title` | `Network` | `Netzwerk` |
-| `network.header.subtitle` | `Manage DNS, VPN and wired connections such as Ethernet or a phone over USB-C.` | `DNS, VPN und kabelgebundene Verbindungen wie Ethernet oder ein Telefon über USB-C verwalten.` |
-| `network.dns` | `DNS Server` | `DNS-Server` |
-| `network.dns.detail` | `192.168.1.1` | `192.168.1.1` |
-| `network.dns.automatic` | `Automatic` | `Automatisch` |
-| `network.dns.hint` | `Empty means automatic (DHCP).` | `Leer bedeutet automatisch (DHCP).` |
-| `network.dns.invalid` | `Enter valid IPv4 addresses, separated by commas.` | `Gültige IPv4-Adressen eingeben, mit Kommas getrennt.` |
-| `network.dns.unavailable` | `DNS cannot be changed here (NetworkManager required).` | `DNS kann hier nicht geändert werden (NetworkManager erforderlich).` |
-| `network.wired.header` | `Wired Networks` | `Kabelnetzwerke` |
-| `network.wired.none` | `No wired connection` | `Keine Kabelverbindung` |
-| `network.wired.info.interface` | `Interface` | `Schnittstelle` |
-| `network.wired.info.connection` | `Connection` | `Verbindung` |
-| `network.wired.info.state` | `Status` | `Status` |
-| `network.wired.info.ip` | `IP Address` | `IP-Adresse` |
-| `network.wired.info.gateway` | `Gateway` | `Gateway` |
-| `network.wired.info.mac` | `MAC Address` | `MAC-Adresse` |
-| `network.wired.info.speed` | `Speed` | `Geschwindigkeit` |
-| `network.wired.info.mtu` | `MTU` | `MTU` |
-| `network.wired.info.driver` | `Driver` | `Treiber` |
-
-## Battery page
-
-Example content (`src/views/battery.rs`): header with the green
-`battery.100` icon (Apple green `(52, 199, 89)`, same as the TontooUI
-demo), title and subtitle, then example rows (Charge, Condition with
-details).
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.battery` | `Battery` | `Batterie` |
-| `battery.title` | `Battery` | `Batterie` |
-| `battery.header.subtitle` | `Charge level and battery condition.` | `Ladestand und Batteriezustand.` |
-| `battery.charge` | `Charge` | `Ladestand` |
-| `battery.charge.detail` | `100%` | `100 %` |
-| `battery.condition` | `Condition` | `Zustand` |
-| `battery.condition.detail` | `Normal` | `Normal` |
-
-## General page
-
-`src/views/general.rs`: centered header card (gear tile, title,
-subtitle) plus grouped row cards — first 3 together (About, Software
-Update, Storage), AirDrop & Handoff alone, next 4 together (Date &
-Time, Language & Region, Sharing, Startup Disk), last 2 alone (Device
-Management, Transfer or Reset) — each row with a CoreIcon tile, label
-and chevron.
-The About row navigates to the hidden About detail page, the Date &
-Time row to the hidden Date & Time page (index 29) and the Language &
-Region row to the hidden Language & Region page (index 30, title from
-`general.language`; history navigation, back button works); every other
-row is display only.
-
-## About page
-
-Device header with the bundled `Resources/laptop.png` artwork (64px,
-rounded, `laptop_png`; falls back to the gray `laptopcomputer` SF tile
-when the file is missing) plus the hostname, followed by the device
-card (name, chip, memory, kernel, app count), the TontooOS card and the
-storage card. All artwork goes through the aspect-kept
-`cached_thumb_fit` pre-scale (`src/views/wallpaper.rs`): `GtkPicture`
-sizes from the texture and ignores size requests, so raw files would
-render at full texture size.
-
-## Date & Time page
-
-`src/views/datetime.rs`: hidden detail page behind the General Date &
-Time row (index 29, reached via history only, title from
-`general.datetime`). Four bare cards like the macOS mockup, no header:
-automatic toggle (always on, insensitive — the daemon enforces NTP at
-startup), live date/time
-(`Sep 12, 2026 at 12:56:08 PM`, refreshed every second, 24-hour variant
-without AM/PM), 24-hour toggle (applies through the daemon and
-re-renders; failures show in the card instead of silently snapping
-back) and a timezone menu button opening a searchable zone list
-(search field plus filtered rows; picking a row applies it, failures
-show `datetime.tz_failed` and keep the menu open). State comes from
-`datetime_get`; writes go through `datetime_set_timezone`/`datetime_set_24h`
-(`timedatectl`, so changes apply system-wide).
-
-| Key | en_us | de_de |
-|---|---|---|
-| `datetime.auto` | `Set time and date automatically` | `Datum und Uhrzeit automatisch einstellen` |
-| `datetime.datetime` | `Date and time` | `Datum und Uhrzeit` |
-| `datetime.use_24h` | `24-hour time` | `24-Stunden-Format` |
-| `datetime.timezone` | `Time Zone` | `Zeitzone` |
-| `datetime.tz_failed` | `Could not set time zone.` | `Zeitzone konnte nicht gesetzt werden.` |
-
-## Language & Region page
-
-`src/views/locale.rs`: hidden detail page behind the General Language
-& Region row (index 30, reached via history only). System language card
-with English/Deutsch rows (checkmark on the active one, tap applies
-via `locale_set_language`) plus a `locale.more_soon` note; region card
-with a menu button opening the full searchable country list (tap
-applies via `locale_set_region`, keyboard follows the region with Auto
-Detect on); keyboard card with an Auto Detect toggle (persists via
-`locale_set_auto_keymap`, failures show in the card) and a layout menu
-button opening the searchable X11 layout list, then the variant list
-(Back plus Default plus variants) for layouts with variants. All writes
-go through `localectl`, so changes apply system-wide.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `locale.system` | `System Language` | `Systemsprache` |
-| `locale.more_soon` | `More soon` | `Bald mehr` |
-| `locale.region` | `Region` | `Region` |
-| `locale.keyboard` | `Keyboard Layout` | `Tastaturlayout` |
-| `locale.auto_detect` | `Auto Detect` | `Automatisch erkennen` |
-| `locale.failed` | `Could not apply the setting.` | `Einstellung konnte nicht angewendet werden.` |
-| `locale.default_variant` | `Default` | `Standard` |
-
-`src/views/about.rs`: hidden detail page behind the General About row
-(index 28, reached via history only, no sidebar entry). Device header
-(bundled laptop artwork plus hostname), device card (Name, Chip from
-`/proc/cpuinfo`, Memory from `/proc/meminfo`, Linux kernel release,
-installed app count from `/Applications`, every
-`/Users/*/Applications` and `/System/Applications` — files and folders
-ending in `.app`, symlinks deduplicated), TontooOS card (versioned OS
-logo from CoreIcon `OSVersionAssets/<version>/TontooOS_Icon.png` with
-rounded corners, daemon display name, dynamic `Version <version>`) and
-a storage card (device plus used/total from `df`, no buttons). All values
-read live with "Unknown" fallbacks; version and codename come from the
-daemon (`get_os`, dynamic, never hardcoded).
-
-| Key | en_us | de_de |
-|---|---|---|
-| `about.title` | `About` | `Über` |
-| `about.name` | `Name` | `Name` |
-| `about.chip` | `Chip` | `Chip` |
-| `about.memory` | `Memory` | `Arbeitsspeicher` |
-| `about.kernel` | `Linux Kernel` | `Linux-Kernel` |
-| `about.apps` | `Apps` | `Apps` |
-| `about.storage` | `Storage` | `Speicher` |
-| `about.unknown` | `Unknown` | `Unbekannt` |
-| `about.version` | `Version` | `Version` |
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.general` | `General` | `General` |
-| `general.title` | `General` | `Allgemein` |
-| `general.header.subtitle` | `Manage your overall setup and preferences for TontooOS, such as software updates, device language, AirDrop, and more.` | `Verwalte dein gesamtes Setup und deine Einstellungen für TontooOS, wie Softwareupdates, Gerätesprache, AirDrop und mehr.` |
-| `general.about` | `About` | `Info` |
-| `general.software_update` | `Software Update` | `Softwareupdate` |
-| `general.storage` | `Storage` | `Speicher` |
-| `general.airdrop` | `AirDrop & Handoff` | `AirDrop & Handoff` |
-| `general.datetime` | `Date & Time` | `Datum & Uhrzeit` |
-| `general.language` | `Language & Region` | `Sprache & Region` |
-| `general.sharing` | `Sharing` | `Freigaben` |
-| `general.startup_disk` | `Startup Disk` | `Startvolume` |
-| `general.device_management` | `Device Management` | `Geräteverwaltung` |
-| `general.transfer_reset` | `Transfer or Reset` | `Übertragen oder Zurücksetzen` |
-
-## Accessibility page
-
-Example content (`src/views/accessibility.rs`): header with the blue
-`figure.wave.circle` icon, title and subtitle, then a Display row with
-an example value and a Reduce Motion toggle.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.accessibility` | `Accessibility` | `Bedienungshilfen` |
-| `accessibility.title` | `Accessibility` | `Bedienungshilfen` |
-| `accessibility.header.subtitle` | `Make the screen easier to see and use.` | `Den Bildschirm leichter sehen und bedienen.` |
-| `accessibility.display` | `Display` | `Anzeige` |
-| `accessibility.display.detail` | `Default` | `Standard` |
-| `accessibility.reduce_motion` | `Reduce Motion` | `Bewegung reduzieren` |
-
-## Appearance page
-
-Display only (`src/views/appearance.rs`): title header, three theme
-thumbnails (Auto, Light, Dark) using the bundled PNG assets
-(`Resources/auto.png`, `light.png`, `dark.png`, pre-scaled to 80px),
-an icon & widget style row (Default, Dark, Tinted Light, Tinted Dark
-icons rendered once via the CoreIcon `AppIcon` pipeline from
-`Resources/app_icon.png` with the full Liquid Glass finish: Default
-keeps the original colors, Dark uses the `#1d1d1d` background, both
-Tinted variants use green) and a color picker row (colored circles,
-display only). Nothing is changeable on this page.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.appearance` | `Appearance` | `Erscheinungsbild` |
-| `appearance.title` | `Appearance` | `Erscheinungsbild` |
-| `appearance.theme.auto` | `Auto` | `Automatisch` |
-| `appearance.theme.light` | `Light` | `Hell` |
-| `appearance.theme.dark` | `Dark` | `Dunkel` |
-| `appearance.theme.section` | `Theme` | `Thema` |
-| `appearance.style.section` | `Icon & widget style` | `Symbol- und Widget-Stil` |
-| `appearance.style.default` | `Default` | `Standard` |
-| `appearance.style.dark` | `Dark` | `Dunkel` |
-| `appearance.style.tinted_light` | `Tinted Light` | `Hell getönt` |
-| `appearance.style.tinted_dark` | `Tinted Dark` | `Dunkel getönt` |
-| `appearance.color.section` | `Color` | `Farbe` |
-
-## Desktop & Dock page
-
-Example content (`src/views/desktop_dock.rs`): header with the blue
-`menubar.dock.rectangle` icon, title and subtitle, then a Wallpaper row
-with an example name plus Show Dock (on) and Magnification (off) toggles.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.desktop_dock` | `Desktop & Dock` | `Schreibtisch & Dock` |
-| `desktop_dock.title` | `Desktop & Dock` | `Schreibtisch & Dock` |
-| `desktop_dock.header.subtitle` | `Manage the wallpaper and the Dock.` | `Hintergrundbild und Dock verwalten.` |
-| `desktop_dock.wallpaper` | `Wallpaper` | `Hintergrundbild` |
-| `desktop_dock.wallpaper.detail` | `Tontoo Reef` | `Tontoo-Riff` |
-| `desktop_dock.show_dock` | `Show Dock` | `Dock einblenden` |
-| `desktop_dock.magnification` | `Magnification` | `Vergrößerung` |
-
-## Displays page
-
-`src/views/displays.rs`: one card with output info plus live controls
-— brightness slider (TontooUI `Slider`, dims the whole desktop in the
-compositor), night light toggle (warm overlay) and a refresh rate
-dropdown built from the monitor's reported modes. No title header (like
-the Wallpaper page, the toolbar shows the title). All values come from
-`display_get` with defaults when the daemon is unreachable; every
-change applies live via `display_set` and persists there.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.displays` | `Displays` | `Monitore` |
-| `displays.title` | `Displays` | `Monitore` |
-| `displays.header.subtitle` | `Adjust brightness, refresh rate and night light.` | `Helligkeit, Bildwiederholrate und Night Light anpassen.` |
-| `displays.output` | `Display` | `Monitor` |
-| `displays.no_output` | `No display found` | `Kein Monitor gefunden` |
-| `displays.brightness` | `Brightness` | `Helligkeit` |
-| `displays.night_light` | `Night Light` | `Night Light` |
-| `displays.refresh_rate` | `Refresh Rate` | `Bildwiederholrate` |
-
-## Menu Bar page
-
-Example content (`src/views/menu_bar.rs`): header with the gray
-`switch.2` icon (Apple-gray like General), title and subtitle, then
-Clock (on) and Spotlight (off) toggles.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.menu_bar` | `Menu Bar` | `Menüleiste` |
-| `menu_bar.title` | `Menu Bar` | `Menüleiste` |
-| `menu_bar.header.subtitle` | `Customize the menu bar.` | `Menüleiste anpassen.` |
-| `menu_bar.clock` | `Clock` | `Uhr` |
-| `menu_bar.spotlight` | `Spotlight` | `Spotlight` |
-
-## Tinti AI page
-
-Example content (`src/views/tinti_ai.rs`): header with the bundled PNG
-icon (`Resources/tinti.png`, sidebar via `SidebarIcon::file`, header via
-`gtk::Image` directly), title and subtitle, then Listen for Tinti (on)
-and AI Suggestions (on) toggles.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.tinti_ai` | `Tinti AI` | `Tinti AI` |
-| `tinti_ai.title` | `Tinti AI` | `Tinti AI` |
-| `tinti_ai.header.subtitle` | `Talk to Tinti and get intelligent suggestions.` | `Sprich mit Tinti und erhalte intelligente Vorschläge.` |
-| `tinti_ai.listen` | `Listen for Tinti` | `Auf Tinti hören` |
-| `tinti_ai.suggestions` | `AI Suggestions` | `KI-Vorschläge` |
-
-## Spotlight page
-
-Example content (`src/views/spotlight.rs`): header with the gray
-`magnifyingglass` icon (Apple-gray like General), title and subtitle,
-then Tinti Suggestions (on) and Recent Searches (off) toggles.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.spotlight` | `Spotlight` | `Spotlight` |
-| `spotlight.title` | `Spotlight` | `Spotlight` |
-| `spotlight.header.subtitle` | `Search apps, files and the web.` | `Apps, Dateien und das Web durchsuchen.` |
-| `spotlight.tinti_suggestions` | `Tinti Suggestions` | `Tinti-Vorschläge` |
-| `spotlight.recents` | `Recent Searches` | `Letzte Suchanfragen` |
-
-## Wallpaper page
-
-`src/views/wallpaper.rs`: current wallpaper card (rounded preview
-thumbnail, name, fill mode dropdown) plus an available wallpapers card
-(Browse button, horizontal custom row, clickable premade grid in macOS
-release order; cells keep their size so rows flow with the window
-width). Rounded thumbnails come from small cached files
-(`gdk-pixbuf` scale-on-load into the temp dir), the 4K/6K originals are
-never loaded into the UI. Custom cells switch straight to the wallpaper
-on click (no popup; Browse uploads convert to PNG with unique names);
-premade cells open a borderless popup centered on the Settings window
-with Light/Auto/Dark previews side by side, click selects with an
-orange accent border, Cancel and Set at the bottom. Set applies to the
-desktop via `wallpaper_apply` and refreshes the current card. The app
-only ever talks to the settings daemon, never to the compositor
-directly; the daemon persists the selection. All data comes from
-`wallpaper_get` with empty fallbacks when the daemon is unreachable.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.wallpaper` | `Wallpaper` | `Hintergrundsbild` |
-| `wallpaper.title` | `Wallpaper` | `Hintergrundsbild` |
-| `wallpaper.header.subtitle` | `Choose the desktop background.` | `Schreibtischhintergrund wählen.` |
-| `wallpaper.current` | `Current Wallpaper` | `Aktuelles Hintergrundbild` |
-| `wallpaper.no_wallpaper` | `No wallpaper set` | `Kein Hintergrundbild festgelegt` |
-| `wallpaper.fill_mode` | `Fill Mode` | `Füllmodus` |
-| `wallpaper.fill.fill` | `Fill screen` | `Bildschirm füllen` |
-| `wallpaper.fill.fit` | `Fit to screen` | `An Bildschirm anpassen` |
-| `wallpaper.fill.stretch` | `Stretch to Fill Screen` | `Auf Bildschirm strecken` |
-| `wallpaper.fill.center` | `Center` | `Zentrieren` |
-| `wallpaper.fill.tile` | `Tile` | `Kacheln` |
-| `wallpaper.available` | `Available Wallpapers` | `Verfügbare Hintergrundbilder` |
-| `wallpaper.browse` | `Browse...` | `Durchsuchen …` |
-| `wallpaper.open` | `Open` | `Öffnen` |
-| `wallpaper.all_images` | `All images` | `Alle Bilder` |
-| `wallpaper.no_wallpapers` | `No wallpapers found.` | `Keine Hintergrundbilder gefunden.` |
-| `wallpaper.custom` | `Custom` | `Eigene` |
-| `wallpaper.premade` | `Premade` | `Vorinstalliert` |
-| `wallpaper.set` | `Set` | `Setzen` |
-| `wallpaper.cancel` | `Cancel` | `Abbrechen` |
-| `wallpaper.mode.light` | `Light` | `Hell` |
-| `wallpaper.mode.auto` | `Auto` | `Auto` |
-| `wallpaper.mode.dark` | `Dark` | `Dunkel` |
-
-## Notifications page
-
-Example content (`src/views/notifications.rs`): header with the red
-`bell.badge.fill` icon (`(255, 69, 58)`), title and subtitle, then Allow
-Notifications (on) and Sounds (on) toggles.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.notifications` | `Notifications` | `Mitteilungen` |
-| `notifications.title` | `Notifications` | `Mitteilungen` |
-| `notifications.header.subtitle` | `Choose which apps notify you and how.` | `Wähle, welche Apps dich benachrichtigen und wie.` |
-| `notifications.allow` | `Allow Notifications` | `Mitteilungen erlauben` |
-| `notifications.sounds` | `Sounds` | `Töne` |
-
-## Sound page
-
-Example content (`src/views/sound.rs`): header with the pink
-`speaker.wave.3.fill` icon (`(255, 45, 85)`), title and subtitle, then
-an Output row with an example device plus a Mute toggle.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.sound` | `Sound` | `Ton` |
-| `sound.title` | `Sound` | `Ton` |
-| `sound.header.subtitle` | `Adjust output volume and alerts.` | `Lautstärke und Hinweistöne anpassen.` |
-| `sound.output` | `Output` | `Ausgabe` |
-| `sound.output.detail` | `Speakers` | `Lautsprecher` |
-| `sound.mute` | `Mute` | `Stumm` |
-
-## Focus page
-
-Example content (`src/views/focus.rs`): header with the indigo
-`moon.fill` icon (`(88, 86, 214)`), title and subtitle, then Do Not
-Disturb (on) and Sleep (off) toggles.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.focus` | `Focus` | `Fokus` |
-| `focus.title` | `Focus` | `Fokus` |
-| `focus.header.subtitle` | `Silence notifications when you need to concentrate.` | `Mitteilungen stummschalten, wenn du dich konzentrieren musst.` |
-| `focus.dnd` | `Do Not Disturb` | `Nicht stören` |
-| `focus.sleep` | `Sleep` | `Schlaf` |
-
-## Screen Time page
-
-Example content (`src/views/screen_time.rs`): header with the indigo
-`hourglass` icon (`(88, 86, 214)`), title and subtitle, then a Downtime
-toggle (off) plus an App Limits row.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.screen_time` | `Screen Time` | `Bildschirmzeit` |
-| `screen_time.title` | `Screen Time` | `Bildschirmzeit` |
-| `screen_time.header.subtitle` | `See app usage and set limits.` | `App-Nutzung sehen und Limits setzen.` |
-| `screen_time.downtime` | `Downtime` | `Auszeit` |
-| `screen_time.app_limits` | `App Limits` | `App-Limits` |
-| `screen_time.app_limits.detail` | `None` | `Keine` |
-
-## Lock Screen page
-
-Example content (`src/views/lock_screen.rs`): header with the black
-`lock.fill` icon (`(0, 0, 0)`), title and subtitle, then a Require
-Password toggle (on) plus a Screen Saver row.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.lock_screen` | `Lock Screen` | `Sperrbildschirm` |
-| `lock_screen.title` | `Lock Screen` | `Sperrbildschirm` |
-| `lock_screen.header.subtitle` | `Secure your computer when you step away.` | `Computer sichern, wenn du weggehst.` |
-| `lock_screen.require_password` | `Require Password` | `Passwort anfordern` |
-| `lock_screen.screen_saver` | `Screen Saver` | `Bildschirmschoner` |
-| `lock_screen.screen_saver.detail` | `5 Minutes` | `5 Minuten` |
-
-## Privacy & Security page
-
-Example content (`src/views/privacy.rs`): header with the blue
-`hand.raised.fill` icon, title and subtitle, then a Location Services
-toggle (on) plus an App Permissions row.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.privacy` | `Privacy & Security` | `Datenschutz & Sicherheit` |
-| `privacy.title` | `Privacy & Security` | `Datenschutz & Sicherheit` |
-| `privacy.header.subtitle` | `Control how apps access your data.` | `Steuern, wie Apps auf deine Daten zugreifen.` |
-| `privacy.location` | `Location Services` | `Ortungsdienste` |
-| `privacy.permissions` | `App Permissions` | `App-Berechtigungen` |
-| `privacy.permissions.detail` | `12 Apps` | `12 Apps` |
-
-## Touch ID & Password page
-
-Example content (`src/views/touch_id.rs`): header with the pink
-`touchid` icon (`(255, 45, 85)`), title and subtitle, then an Unlock
-with Touch ID toggle (on) plus a Passwords row.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.touch_id` | `Touch ID & Password` | `Touch ID & Passwort` |
-| `touch_id.title` | `Touch ID & Password` | `Touch ID & Passwort` |
-| `touch_id.header.subtitle` | `Unlock with your fingerprint and manage passwords.` | `Mit Fingerabdruck entsperren und Passwörter verwalten.` |
-| `touch_id.unlock` | `Unlock with Touch ID` | `Mit Touch ID entsperren` |
-| `touch_id.passwords` | `Passwords` | `Passwörter` |
-| `touch_id.passwords.detail` | `3 Saved` | `3 gespeichert` |
-
-## Users & Groups page
-
-Example content (`src/views/users.rs`): header with the gray
-`person.2.fill` icon (Apple-gray like General), title and subtitle,
-then a Current User row plus a Guest User toggle (off).
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.users` | `Users & Groups` | `Benutzer & Gruppen` |
-| `users.title` | `Users & Groups` | `Benutzer & Gruppen` |
-| `users.header.subtitle` | `Manage the users of this computer.` | `Benutzer dieses Computers verwalten.` |
-| `users.current` | `Current User` | `Aktueller Benutzer` |
-| `users.current.detail` | `Admin` | `Admin` |
-| `users.guest` | `Guest User` | `Gastbenutzer` |
-
-## Internet Accounts page
-
-Example content (`src/views/internet_accounts.rs`): header with the blue
-`mail.stack.fill` icon, title and subtitle, then a Tontoo Account row
-plus a Mail toggle (on).
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.internet_accounts` | `Internet Accounts` | `Internetaccounts` |
-| `internet_accounts.title` | `Internet Accounts` | `Internetaccounts` |
-| `internet_accounts.header.subtitle` | `Connect mail, contacts and calendars.` | `Mail, Kontakte und Kalender verbinden.` |
-| `internet_accounts.account` | `Tontoo Account` | `Tontoo-Account` |
-| `internet_accounts.account.detail` | `Signed In` | `Angemeldet` |
-| `internet_accounts.mail` | `Mail` | `Mail` |
-
-## Octo Cloud page
-
-Example content (`src/views/octo_cloud.rs`): header with the orange
-`icloud.fill` icon (`(255, 107, 43)`), title and subtitle, then a
-Storage row plus a Sync toggle (on).
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.octo_cloud` | `Octo Cloud` | `Octo Cloud` |
-| `octo_cloud.title` | `Octo Cloud` | `Octo Cloud` |
-| `octo_cloud.header.subtitle` | `Sync notes, podcasts and more across devices.` | `Notizen, Podcasts und mehr geräteübergreifend synchronisieren.` |
-| `octo_cloud.storage` | `Storage` | `Speicher` |
-| `octo_cloud.storage.detail` | `128 GB of 1 TB` | `128 GB von 1 TB` |
-| `octo_cloud.sync` | `Sync` | `Synchronisieren` |
-
-## Keyboard page
-
-Example content (`src/views/keyboard.rs`): header with the gray
-`keyboard.fill` icon (Apple-gray like General), title and subtitle,
-then a Key Repeat toggle (on) plus a Shortcuts row.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.keyboard` | `Keyboard` | `Tastatur` |
-| `keyboard.title` | `Keyboard` | `Tastatur` |
-| `keyboard.header.subtitle` | `Set typing behavior and shortcuts.` | `Tippverhalten und Kurzbefehle festlegen.` |
-| `keyboard.key_repeat` | `Key Repeat` | `Tastenwiederholung` |
-| `keyboard.shortcuts` | `Shortcuts` | `Kurzbefehle` |
-| `keyboard.shortcuts.detail` | `12 Defined` | `12 definiert` |
-
-## Mouse & Trackpad page
-
-Example content (`src/views/mouse.rs`): header with the gray
-`cursorarrow` icon (Apple-gray like General), title and subtitle, then
-a Tracking Speed row plus a Natural Scroll toggle (on).
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.mouse` | `Mouse & Trackpad` | `Maus & Trackpad` |
-| `mouse.title` | `Mouse & Trackpad` | `Maus & Trackpad` |
-| `mouse.header.subtitle` | `Adjust pointing and clicking.` | `Zeigen und Klicken anpassen.` |
-| `mouse.tracking` | `Tracking Speed` | `Zeigergeschwindigkeit` |
-| `mouse.tracking.detail` | `Fast` | `Schnell` |
-| `mouse.natural_scroll` | `Natural Scroll` | `Natürliches Scrollen` |
-
-## Printers page
-
-Example content (`src/views/printers.rs`): header with the gray
-`printer.fill` icon (Apple-gray like General), title and subtitle, then
-a Default Printer row plus a Double-Sided toggle (on).
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.printers` | `Printers` | `Drucker` |
-| `printers.title` | `Printers` | `Drucker` |
-| `printers.header.subtitle` | `Add printers and manage print jobs.` | `Drucker hinzufügen und Druckaufträge verwalten.` |
-| `printers.default` | `Default Printer` | `Standarddrucker` |
-| `printers.default.detail` | `Tontoo Laser` | `Tontoo Laser` |
-| `printers.double_sided` | `Double-Sided` | `Beidseitig` |
-
-## App Settings page
-
-Example content (`src/views/app_settings.rs`): header with the bundled
-Launchpad PNG (`Resources/launchpad.png`, sidebar via
-`SidebarIcon::file`, header via `gtk::Image` directly), title and
-subtitle, then a Default Apps row plus an Auto Update toggle (on).
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.app_settings` | `App Settings` | `App-Einstellungen` |
-| `app_settings.title` | `App Settings` | `App-Einstellungen` |
-| `app_settings.header.subtitle` | `Manage installed apps and defaults.` | `Installierte Apps und Standards verwalten.` |
-| `app_settings.default_apps` | `Default Apps` | `Standard-Apps` |
-| `app_settings.default_apps.detail` | `Tontoo Apps` | `Tontoo-Apps` |
-| `app_settings.auto_update` | `Auto Update` | `Automatische Updates` |
-
-## Developer page
-
-Example content (`src/views/developer.rs`): header with the gray
-`hammer.fill` icon (Apple-gray like General), title and subtitle, then
-a Developer Mode toggle (off) plus an API Logs row.
-
-| Key | en_us | de_de |
-|---|---|---|
-| `sidebar.developer` | `Developer` | `Entwickler` |
-| `developer.title` | `Developer` | `Entwickler` |
-| `developer.header.subtitle` | `Tools for developers.` | `Werkzeuge für Entwickler.` |
-| `developer.mode` | `Developer Mode` | `Entwicklermodus` |
-| `developer.api_logs` | `API Logs` | `API-Protokolle` |
-| `developer.api_logs.detail` | `Minimal` | `Minimal` |
-
-## Daemon backend
-
-`src/daemon.rs` wires the app to the settings daemon over its unix socket
-(`SETTINGS_SOCKET` override, else `/run/tontoo-settings.sock`). It covers
-the public read ops (`wifi_list`, `wifi_status`, `wifi_known_list`,
-`dns_get`, `wired_list`, `datetime_get`, `locale_get`,
-`locale_keymap_variants`, `wallpaper_get`,
-`display_get`, `get_os`) and the
-private write ops (`wifi_connect`, `wifi_disconnect`, `wifi_enable`,
-`wifi_disable`, `wifi_forget`, `dns_set`, `datetime_set_timezone`,
-`datetime_set_24h`, `locale_set_language`, `locale_set_region`,
-`locale_set_keymap`, `locale_set_auto_keymap`, `wallpaper_set_current`,
-`wallpaper_set_fill`, `wallpaper_add`) reserved for this app
-(`com.tontoo.systemsettings`).
-
-```rust
-pub fn list() -> Result<Vec<WifiNetwork>, String>
-pub fn status() -> Result<WifiState, String>
-pub fn known_list() -> Result<Vec<KnownNetwork>, String>
-pub fn connect(ssid: &str, password: Option<&str>, hidden: bool) -> Result<WifiStatus, String>
-pub fn disconnect() -> Result<(), String>
-pub fn set_enabled(enabled: bool) -> Result<(), String>
-pub fn forget(ssid: &str) -> Result<bool, String>
-pub fn dns_get() -> Result<DnsState, String>
-pub fn dns_set(servers: &str) -> Result<DnsState, String>
-pub fn wired_list() -> Result<Vec<WiredInfo>, String>
-pub fn datetime_get() -> Result<DateTimeState, String>
-pub fn datetime_set_timezone(timezone: &str) -> Result<DateTimeState, String>
-pub fn datetime_set_24h(use_24h: bool) -> Result<DateTimeState, String>
-pub fn locale_get() -> Result<LocaleState, String>
-pub fn locale_set_language(language: &str) -> Result<LocaleState, String>
-pub fn locale_set_region(region: &str) -> Result<LocaleState, String>
-pub fn locale_set_keymap(layout: &str, variant: Option<&str>) -> Result<LocaleState, String>
-pub fn locale_set_auto_keymap(auto: bool) -> Result<LocaleState, String>
-pub fn locale_keymap_variants(layout: &str) -> Result<Vec<String>, String>
-pub fn wallpaper_get() -> Result<WallpaperState, String>
-pub fn wallpaper_set_current(kind: &str, id: &str) -> Result<Option<WallpaperEntry>, String>
-pub fn wallpaper_set_fill(fill: &str) -> Result<String, String>
-pub fn wallpaper_add(path: &str, name: Option<&str>) -> Result<WallpaperEntry, String>
-pub fn wallpaper_apply(kind: &str, id: &str, variant: &str) -> Result<WallpaperEntry, String>
-pub fn get_os() -> Result<OsInfo, String>
-pub fn display_get() -> Result<DisplayState, String>
-pub fn display_set(output: Option<&str>, width: Option<i32>, height: Option<i32>, refresh: Option<u32>, brightness: Option<f64>, night_light: Option<bool>) -> Result<DisplayState, String>
-```
-
-Rules:
-
-- The Wallpaper, Displays and Wi-Fi pages are daemon-wired; `WifiState`
-  carries `enabled`, `available` (false without a wireless adapter) and
-  the current connection. Known networks come from `wifi_known_list`
-  (never passwords).
-- Missing or unreachable sockets return `Err`, never partial data.
-
-## Packaging
-
-`tontoo.proj` (`bundle_id: com.tontoo.systemsettings`) lets TBuild
-assemble the `.app` bundle:
-
-```bash
-tbuild app /path/to/SystemSettings
-```
-
-The bundle contains the release binary (`App/`), the icon
-(`Resources/app_icon.png`) and `Resources/lang/` (`lang/`). The runtime
-lookup covers the bundle layout
-(`<Name>.app/Resources/lang`), dev checkouts (`lang/`,
-`Resources/`) and installed files (`/usr/share/systemsettings/`).
 
 ## Cross References
 
-- [MAIN.md](MAIN.md) -- wiki entry point
-- TontooUI [Sidebar](https://github.com/TontooOS/TontooOS) -- sidebar with traffic lights and item list
-- CoreIcon SF Symbol `wifi.circle.fill` -- blue Wi-Fi category icon
+- [MAIN.md](MAIN.md) – wiki index and changelog
+- TontooUI `wiki/MAIN.md` – the renderer, `Sidebar`, `Form`, `Sheet` and
+  `ThemeWatcher` pages this app is built on
